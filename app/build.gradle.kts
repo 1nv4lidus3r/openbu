@@ -28,13 +28,15 @@ android {
         applicationId = "org.cygnusx1.openbu"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
+        // BamMate numbering: 0.0.x until beta. versionCode must keep increasing for updates to
+        // install (the last Openbu-based build was 3), so it continues from there.
+        versionCode = 4
         // Base version only. The "-dirty" marker for builds from a tree with uncommitted changes
         // is applied to the APK/AAB *filenames* at execution time (see DirtyAwareTask), so it
         // can't go stale under the configuration cache and stays out of the user-visible manifest
         // version. A "-dirty" build is instead visible in the artifact filename (no automated
         // release guard exists yet).
-        versionName = "1.0.27"
+        versionName = "0.0.1"
     }
 
     signingConfigs {
@@ -205,9 +207,9 @@ androidComponents {
     onVariants { variant ->
         val vName = android.defaultConfig.versionName ?: "unknown"
         val apkName = if (variant.buildType == "debug") {
-            "openbu-${variant.flavorName}-${variant.buildType}-$vName"
+            "bammate-${variant.flavorName}-${variant.buildType}-$vName"
         } else {
-            "openbu-$vName"
+            "bammate-$vName"
         }
         val renameTask = tasks.register<RenameApkTask>(
             "rename${variant.name.replaceFirstChar { it.uppercase() }}Apk",

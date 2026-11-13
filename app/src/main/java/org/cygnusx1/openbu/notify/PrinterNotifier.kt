@@ -24,16 +24,19 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 object NotifyChannels {
-    const val SERVICE = "openbu_service"
-    const val FINISHED = "openbu_print_finished"
-    const val FAILED = "openbu_print_failed"
-    const val PAUSED = "openbu_print_paused"
-    const val HMS = "openbu_hms"
+    const val SERVICE = "bammate_service"
+    const val FINISHED = "bammate_print_finished"
+    const val FAILED = "bammate_print_failed"
+    const val PAUSED = "bammate_print_paused"
+    const val HMS = "bammate_hms"
     const val REMINDERS = "bammate_reminders"
 
     fun ensure(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        // Remove the channels from before the rename so they don't linger in system settings.
+        listOf("openbu_service", "openbu_print_finished", "openbu_print_failed", "openbu_print_paused", "openbu_hms")
+            .forEach { if (nm.getNotificationChannel(it) != null) nm.deleteNotificationChannel(it) }
         fun make(id: String, nameRes: Int, importance: Int) {
             if (nm.getNotificationChannel(id) == null) {
                 nm.createNotificationChannel(NotificationChannel(id, context.getString(nameRes), importance))

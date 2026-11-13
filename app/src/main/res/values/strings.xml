@@ -30,8 +30,12 @@
     <string name="timelapses">Timelapses</string>
     <string name="skip_objects">Skip Objects</string>
     <string name="remote_relay">Remote Relay</string>
-    <string name="about_openbu">About BamMate</string>
-    <string name="about_credits">BamMate controls your Bambu Lab printers through your own Bambuddy server.\n\nBased on Openbu by cygnusx-1, released under the GNU Affero General Public License v3. This app is released under the same license. Source code: https://github.com/1nv4lidus3r/openbu\n\nBamMate is an independent project. It is not affiliated with or endorsed by Bambu Lab or the Bambuddy project.</string>
+    <string name="about_app">About BamMate</string>
+    <string name="about_credits">BamMate is your 3D printer assistant for Bambu Lab printers, through your own Bambuddy server or directly on your network.
+
+BamMate is an independent project and is not affiliated with or endorsed by Bambu Lab or the Bambuddy project.</string>
+    <!-- Required licence notice while BamMate still contains code derived from Openbu (GNU AGPL v3). -->
+    <string name="about_license">Open-source software, GNU AGPL v3. Parts of the direct printer connection are based on Openbu by cygnusx-1. Source: github.com/1nv4lidus3r/openbu</string>
     <string name="hms_errors">HMS Errors</string>
     <string name="set_filament">Set Filament</string>
     <string name="print_speed">Print Speed</string>

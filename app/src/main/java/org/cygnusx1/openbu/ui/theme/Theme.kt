@@ -43,7 +43,7 @@ private val BamMateColors = darkColorScheme(
 )
 
 @Composable
-fun OpenbuTheme(
+fun BamMateTheme(
     // Kept so existing call sites compile. The BamMate theme is always dark.
     @Suppress("UNUSED_PARAMETER") overrideDeviceTheme: Boolean = false,
     customBackgroundColor: Int? = null,

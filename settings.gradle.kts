@@ -23,5 +23,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Openbu"
+rootProject.name = "BamMate"
 include(":app")

@@ -60,7 +60,7 @@ fun SettingsScreen(
     if (showAboutDialog) {
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
-            title = { Text(stringResource(R.string.about_openbu)) },
+            title = { Text(stringResource(R.string.about_app)) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(stringResource(R.string.version, versionName))
@@ -68,6 +68,12 @@ fun SettingsScreen(
                     Text(
                         text = stringResource(R.string.about_credits),
                         style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.about_license),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
@@ -146,7 +152,7 @@ fun SettingsScreen(
                 SettingsDivider()
                 SettingsNavRow(
                     icon = Icons.Filled.Info,
-                    title = stringResource(R.string.about_openbu),
+                    title = stringResource(R.string.about_app),
                     subtitle = stringResource(R.string.version, versionName),
                     onClick = { showAboutDialog = true },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,

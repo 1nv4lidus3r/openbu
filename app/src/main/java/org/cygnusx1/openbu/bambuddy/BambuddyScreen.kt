@@ -221,6 +221,7 @@ fun BambuddyHome(
                         power = power[s.id],
                     )
                 }
+                DonateBanner()
             }
         }
     }
@@ -1009,6 +1010,36 @@ private fun HomeSummary(
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+    }
+}
+
+/** Small "Buy me a coffee" link under the printers (direct/sideload build only, see flags.xml). */
+@Composable
+private fun DonateBanner() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    if (!context.resources.getBoolean(org.cygnusx1.openbu.R.bool.show_donate)) return
+    Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+        Surface(
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(context.getString(org.cygnusx1.openbu.R.string.donate_url)),
+                        ),
+                    )
+                }
+            },
+            shape = RoundedCornerShape(50),
+            color = Color(0xFFFFDD00).copy(alpha = 0.12f),
+        ) {
+            Text(
+                "\u2615  Enjoying BamMate? Buy me a coffee",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFFFFDD00),
+            )
         }
     }
 }

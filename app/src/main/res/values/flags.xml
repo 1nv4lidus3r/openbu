@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Buy Me a Coffee banner. Off by default (Play Store build): Google Play's payments policy
+         restricts in-app links to outside payment pages. The direct (sideload) build turns it on. -->
+    <bool name="show_donate">false</bool>
+    <string name="donate_url" translatable="false">https://buymeacoffee.com/1nv4lid_us3r</string>
+</resources>

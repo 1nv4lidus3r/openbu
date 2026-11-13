@@ -58,7 +58,7 @@ import org.cygnusx1.openbu.ui.VideoPlayerScreen
 import org.cygnusx1.openbu.ui.VlcPlayerHolder
 import org.cygnusx1.openbu.ui.VlcRtspStreamScreen
 import org.cygnusx1.openbu.ui.rememberVlcContent
-import org.cygnusx1.openbu.ui.theme.OpenbuTheme
+import org.cygnusx1.openbu.ui.theme.BamMateTheme
 import org.cygnusx1.openbu.viewmodel.BambuStreamViewModel
 import org.cygnusx1.openbu.viewmodel.ConnectionState
 
@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
             val customBgColor by viewModel.customBgColor.collectAsState()
             val connectionState by viewModel.connectionState.collectAsState()
             val isConnected = connectionState == ConnectionState.Connected
-            OpenbuTheme(
+            BamMateTheme(
                 overrideDeviceTheme = forceDarkMode,
                 customBackgroundColor = if (isConnected) customBgColor else null,
             ) {

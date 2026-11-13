@@ -90,7 +90,7 @@ object NotifyPrefs {
      */
     fun backgroundClientId(prefs: SharedPreferences): String =
         prefs.getString("mqtt_client_id_bg", null) ?: run {
-            val id = "openbu_bg_" + UUID.randomUUID().toString().replace("-", "").take(13)
+            val id = "bammate_bg_" + UUID.randomUUID().toString().replace("-", "").take(13)
             prefs.edit().putString("mqtt_client_id_bg", id).apply()
             id
         }
