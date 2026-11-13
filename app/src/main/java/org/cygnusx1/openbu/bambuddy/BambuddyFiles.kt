@@ -1,5 +1,6 @@
 package org.cygnusx1.openbu.bambuddy
 
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Photo
@@ -257,6 +258,7 @@ fun BambuddyFilesScreen(
     var selected by remember { mutableStateOf<BbFile?>(null) }
     var confirmDelete by remember { mutableStateOf<BbFile?>(null) }
     var showRaw by remember { mutableStateOf(false) }
+    var view3d by remember { mutableStateOf<BbFile?>(null) }
     var filter by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(FileSort.NAME_AZ) }
     var sortMenu by remember { mutableStateOf(false) }
@@ -313,6 +315,11 @@ fun BambuddyFilesScreen(
         } finally {
             loading = false
         }
+    }
+
+    view3d?.let { f ->
+        Model3DScreen(printerId = printerId, file = f, vm = vm, onBack = { view3d = null })
+        return
     }
 
     val checkedFiles = files.filter { !it.isDir && it.path in checked }
@@ -581,6 +588,10 @@ fun BambuddyFilesScreen(
                 selected = null
                 confirmDelete = f
             },
+            onView3d = {
+                selected = null
+                view3d = f
+            },
         )
     }
 
@@ -676,6 +687,7 @@ private fun FileActionsDialog(
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
     onDelete: () -> Unit,
+    onView3d: () -> Unit,
 ) {
     val is3mf = file.name.endsWith(".3mf", ignoreCase = true)
     var thumb by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -731,6 +743,13 @@ private fun FileActionsDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
+                }
+                if (is3mf) {
+                    FilledTonalButton(onClick = onView3d, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.ViewInAr, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("View in 3D")
                     }
                 }
                 Text(

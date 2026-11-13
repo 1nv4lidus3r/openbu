@@ -1,0 +1,290 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<!-- BamMate 3D model viewer. three.js r147 (MIT, see THREE_LICENSE.txt) is bundled so this works offline. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; color: #e5e7eb; }
+  canvas { display: block; touch-action: none; }
+  #msg { position: fixed; top: 12px; left: 16px; right: 16px; text-align: center; font-size: 13px; color: #9ca3af; pointer-events: none; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 20px; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; padding: 0 12px; }
+  button { background: #1b1b20; color: #e5e7eb; border: 0; border-radius: 14px; padding: 9px 12px; font-size: 13px; }
+  button.on { background: #1e3a8a; color: #dbeafe; }
+  #legend { position: fixed; top: 40px; left: 12px; font-size: 12px; color: #d1d5db; background: rgba(17,17,21,0.85); border-radius: 12px; padding: 8px 10px; display: none; }
+  #legend div { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  #legend span { width: 10px; height: 10px; border-radius: 5px; display: inline-block; }
+</style>
+</head>
+<body>
+<div id="msg">Loading model...</div>
+<div id="legend"></div>
+<div id="diag" style="position:fixed;left:12px;bottom:70px;font-size:11px;color:#6b7280;pointer-events:none"></div>
+<div id="bar">
+  <button data-v="iso" class="on">Iso</button>
+  <button data-v="top">Top</button>
+  <button data-v="bottom">Bottom</button>
+  <button data-v="front">Front</button>
+  <button data-v="back">Back</button>
+</div>
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<script>
+(function () {
+  // Rendering uses a plain 2D canvas: WebGL output inside Android WebViews doesn't reach the screen
+  // on some phones. three.js is used only for the camera maths and the touch controls.
+  const msg = document.getElementById('msg');
+  const diag = document.getElementById('diag');
+  window.onerror = (m, src, line) => { msg.textContent = 'Viewer error: ' + m + ' (line ' + line + ')'; console.error(m, src, line); };
+
+  const W = () => Math.max(window.innerWidth, 1);
+  const H = () => Math.max(window.innerHeight, 1);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const canvas = document.createElement('canvas');
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+
+  const camera = new THREE.PerspectiveCamera(40, W() / H(), 0.1, 10000);
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = false;
+  controls.screenSpacePanning = true;
+
+  function bytesOf(b64) {
+    const bin = atob(b64 || '');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  const decode = (b64) => new Float32Array(bytesOf(b64).buffer);
+
+  // Same groups and colours as Bambuddy's G-code preview. Index = type byte from the app.
+  const TYPES = [
+    ['Walls', 0xf97316], ['Sparse infill', 0x3b5bdb], ['Solid infill', 0x7dd3fc], ['Bridge / overhang', 0xef4444],
+    ['Support', 0xa855f7], ['Skirt / brim', 0x22c55e], ['Gap fill', 0xfacc15], ['Ironing', 0x86efac],
+    ['Prime tower', 0x5eead4], ['Other', 0x9ca3af],
+  ];
+  const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+
+  let kind = 'lines';
+  let P = null;       // vertices, Y-up and centred: x, y, z per vertex
+  let N = null;       // mesh: one normal per triangle
+  let edges = null;   // mesh: outline segments (Y-up, centred)
+  let segType = null; // lines: type per segment
+  let count = 0;      // number of segments / triangles
+  let radius = 50;
+
+  function load() {
+    kind = BamMate.getKind();
+    const note = BamMate.getNote();
+    if (kind === 'error') { msg.textContent = note || 'Could not load this file.'; return false; }
+    const src = decode(BamMate.getData());
+    // 3MF / G-code are Z-up: (x, y, z) -> (x, z, -y) is Y-up.
+    P = new Float32Array(src.length);
+    for (let i = 0; i < src.length; i += 3) { P[i] = src[i]; P[i + 1] = src[i + 2]; P[i + 2] = -src[i + 1]; }
+    // Centre on the bounding box.
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) { const v = P[i + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; }
+    const c = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+    for (let i = 0; i < P.length; i += 3) { P[i] -= c[0]; P[i + 1] -= c[1]; P[i + 2] -= c[2]; }
+    radius = Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 1);
+
+    if (kind === 'mesh') {
+      count = P.length / 9;
+      N = new Float32Array(count * 3);
+      for (let t = 0; t < count; t++) {
+        const o = t * 9;
+        const ax = P[o + 3] - P[o], ay = P[o + 4] - P[o + 1], az = P[o + 5] - P[o + 2];
+        const bx = P[o + 6] - P[o], by = P[o + 7] - P[o + 1], bz = P[o + 8] - P[o + 2];
+        let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+        const l = Math.hypot(nx, ny, nz) || 1;
+        N[t * 3] = nx / l; N[t * 3 + 1] = ny / l; N[t * 3 + 2] = nz / l;
+      }
+      // Sharp edges outline details such as text on a face.
+      if (count <= 200000) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+        edges = new THREE.EdgesGeometry(g, 25).attributes.position.array;
+      }
+    } else {
+      count = P.length / 6;
+      const t = bytesOf(typeof BamMate.getTypes === 'function' ? BamMate.getTypes() : '');
+      segType = t.length === count ? t : new Uint8Array(count).fill(9);
+      const used = new Set(segType);
+      const legend = document.getElementById('legend');
+      legend.innerHTML = [...used].sort((a, b) => a - b)
+        .map(i => '<div><span style="background:' + hex(TYPES[Math.min(i, 9)][1]) + '"></span>' + TYPES[Math.min(i, 9)][0] + '</div>').join('');
+      legend.style.display = used.size ? 'block' : 'none';
+    }
+    msg.textContent = note || '';
+    return true;
+  }
+
+  // ---- drawing --------------------------------------------------------------------------
+  let sx, sy, sw; // screen x/y and view depth per vertex
+  function project(arr) {
+    camera.updateMatrixWorld();
+    const m = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+    const n = arr.length / 3;
+    const X = new Float32Array(n), Y = new Float32Array(n), D = new Float32Array(n);
+    const hw = canvas.width / 2, hh = canvas.height / 2;
+    for (let i = 0; i < n; i++) {
+      const x = arr[i * 3], y = arr[i * 3 + 1], z = arr[i * 3 + 2];
+      const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+      X[i] = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / w) * hw + hw;
+      Y[i] = hh - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / w) * hh;
+      D[i] = w;
+    }
+    return [X, Y, D];
+  }
+
+  function draw() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (!P) return;
+    const t0 = performance.now();
+    if (kind === 'lines') {
+      [sx, sy, sw] = project(P);
+      const order = new Uint32Array(count);
+      const depth = new Float32Array(count);
+      // Prints are stacked flat layers: seen from above or below, layer height is the right
+      // drawing order (a long infill line can otherwise count as "nearer" than the top surface).
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const byHeight = Math.abs(dir.y) > 0.25;
+      const fromAbove = dir.y < 0;
+      for (let i = 0; i < count; i++) {
+        order[i] = i;
+        if (byHeight) {
+          const h = P[i * 6 + 1] + P[i * 6 + 4];
+          depth[i] = fromAbove ? -h : h;
+        } else {
+          depth[i] = sw[i * 2] + sw[i * 2 + 1];
+        }
+      }
+      order.sort((a, b) => depth[b] - depth[a]); // far first, so the nearest paths end up on top
+      ctx.lineWidth = Math.max(1, dpr * 1.1);
+      ctx.lineCap = 'round';
+      let cur = -1;
+      ctx.beginPath();
+      for (let k = 0; k < count; k++) {
+        const i = order[k];
+        const ty = Math.min(segType[i], 9);
+        if (ty !== cur) {
+          if (cur >= 0) ctx.stroke();
+          ctx.beginPath();
+          ctx.strokeStyle = hex(TYPES[ty][1]);
+          cur = ty;
+        }
+        ctx.moveTo(sx[i * 2], sy[i * 2]);
+        ctx.lineTo(sx[i * 2 + 1], sy[i * 2 + 1]);
+      }
+      ctx.stroke();
+    } else {
+      // Solid model: painter's algorithm. Faces pointing away from the camera are skipped, and the
+      // outline edges are sorted in with the faces so hidden outlines get covered.
+      [sx, sy, sw] = project(P);
+      const camPos = camera.position;
+      const E = edges ? project(edges) : null;
+      const nEdges = edges ? edges.length / 6 : 0;
+      const items = new Uint32Array(count + nEdges);
+      const depth = new Float32Array(count + nEdges);
+      let n = 0;
+      for (let i = 0; i < count; i++) {
+        const o = i * 9;
+        const cx = (P[o] + P[o + 3] + P[o + 6]) / 3, cy = (P[o + 1] + P[o + 4] + P[o + 7]) / 3, cz = (P[o + 2] + P[o + 5] + P[o + 8]) / 3;
+        if (N[i * 3] * (camPos.x - cx) + N[i * 3 + 1] * (camPos.y - cy) + N[i * 3 + 2] * (camPos.z - cz) < 0) continue;
+        items[n] = i;
+        depth[n++] = (sw[i * 3] + sw[i * 3 + 1] + sw[i * 3 + 2]) / 3;
+      }
+      for (let e = 0; e < nEdges; e++) {
+        items[n] = count + e;
+        depth[n++] = (E[2][e * 2] + E[2][e * 2 + 1]) / 2 - radius * 0.002; // a hair nearer than its faces
+      }
+      const idx = new Uint32Array(n);
+      for (let k = 0; k < n; k++) idx[k] = k;
+      idx.sort((a, b) => depth[b] - depth[a]);
+      const L = new THREE.Vector3(0.3, 0.6, 1).applyQuaternion(camera.quaternion).normalize();
+      ctx.lineWidth = Math.max(1, dpr);
+      for (let k = 0; k < n; k++) {
+        const it = items[idx[k]];
+        if (it < count) {
+          const i = it;
+          const d = Math.abs(N[i * 3] * L.x + N[i * 3 + 1] * L.y + N[i * 3 + 2] * L.z);
+          const v = Math.round(70 + 170 * d);
+          ctx.fillStyle = ctx.strokeStyle = 'rgb(' + v + ',' + Math.round(v * 1.02) + ',' + Math.min(255, Math.round(v * 1.08)) + ')';
+          ctx.beginPath();
+          ctx.moveTo(sx[i * 3], sy[i * 3]);
+          ctx.lineTo(sx[i * 3 + 1], sy[i * 3 + 1]);
+          ctx.lineTo(sx[i * 3 + 2], sy[i * 3 + 2]);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke(); // hides hairline gaps between triangles
+        } else {
+          const e = it - count;
+          ctx.strokeStyle = 'rgba(30,58,138,0.95)';
+          ctx.beginPath();
+          ctx.moveTo(E[0][e * 2], E[1][e * 2]);
+          ctx.lineTo(E[0][e * 2 + 1], E[1][e * 2 + 1]);
+          ctx.stroke();
+        }
+      }
+    }
+    // Small mark drawn on the canvas itself, so a screenshot shows whether the canvas is on screen.
+    ctx.fillStyle = '#22c55e';
+    ctx.font = (11 * dpr) + 'px sans-serif';
+    ctx.fillText('canvas ok', canvas.width - 70 * dpr, canvas.height - 64 * dpr);
+    diag.textContent = count.toLocaleString() + (kind === 'lines' ? ' paths' : ' triangles') +
+      '  view ' + canvas.width + 'x' + canvas.height + '  ' + Math.round(performance.now() - t0) + ' ms';
+  }
+
+  let pending = false;
+  function requestDraw() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; try { draw(); } catch (e) { msg.textContent = 'Drawing error: ' + e.message; } });
+  }
+  controls.addEventListener('change', requestDraw);
+
+  // ---- views ----------------------------------------------------------------------------
+  let current = 'iso';
+  const VIEWS = { iso: [1, 0.8, 1], top: [0, 1, 0.0001], bottom: [0, -1, 0.0001], front: [0, 0, 1], back: [0, 0, -1] };
+  function setView(name) {
+    current = name;
+    const d = new THREE.Vector3().fromArray(VIEWS[name]).normalize();
+    const vHalf = (camera.fov * Math.PI / 180) / 2;
+    const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+    const dist = radius / Math.sin(Math.min(vHalf, hHalf)) * 1.1;
+    camera.near = radius / 100;
+    camera.far = radius * 100;
+    camera.updateProjectionMatrix();
+    controls.target.set(0, 0, 0);
+    camera.position.copy(d.multiplyScalar(dist));
+    camera.lookAt(0, 0, 0);
+    controls.update();
+    requestDraw();
+    document.querySelectorAll('#bar button').forEach(b => b.classList.toggle('on', b.dataset.v === name));
+  }
+  document.querySelectorAll('#bar button').forEach(b => b.addEventListener('click', () => setView(b.dataset.v)));
+
+  let loaded = false;
+  function fitToWindow() {
+    canvas.width = Math.round(W() * dpr);
+    canvas.height = Math.round(H() * dpr);
+    canvas.style.width = W() + 'px';
+    canvas.style.height = H() + 'px';
+    camera.aspect = W() / H();
+    camera.updateProjectionMatrix();
+    if (loaded) setView(current); else requestDraw();
+  }
+  window.addEventListener('resize', fitToWindow);
+
+  // Wait until the page has a real size before building the view.
+  (function start() {
+    if (window.innerWidth < 2 || window.innerHeight < 2) { requestAnimationFrame(start); return; }
+    fitToWindow();
+    try { loaded = load(); if (loaded) setView('iso'); } catch (e) { msg.textContent = 'Viewer error: ' + e.message; }
+  })();
+})();
+</script>
+</body>
+</html>
