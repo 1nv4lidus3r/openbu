@@ -1,5 +1,9 @@
 package org.cygnusx1.openbu.bambuddy
 
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Slider
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import org.cygnusx1.openbu.ui.SettingsGroup
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
@@ -358,6 +362,12 @@ private sealed class CardDialog {
 }
 
 private val SPEED_NAMES = listOf("Silent", "Standard", "Sport", "Ludicrous")
+private val SPEED_NOTES = listOf(
+    "About 50% speed, quieter",
+    "Normal speed (100%)",
+    "About 124% speed",
+    "About 166% speed, loudest",
+)
 
 @Composable
 private fun PrinterCard(
@@ -674,7 +684,7 @@ private fun PrinterCard(
             // Filaments
             if (s.ams.isNotEmpty() || s.external.isNotEmpty()) {
                 SectionLabel("Filaments")
-                s.ams.forEach { AmsView(it) }
+                s.ams.forEach { AmsView(it, s, vm) }
                 if (s.external.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -709,6 +719,8 @@ private fun PrinterCard(
             max = d.max,
             unit = "°C",
             helper = "0 turns heating off",
+            presets = tempPresets(d.label, d.max),
+            step = tempStep(d.label),
             onDismiss = { dialog = null },
             onConfirm = { d.onSet(it); dialog = null },
         )
@@ -718,6 +730,7 @@ private fun PrinterCard(
             max = 100,
             unit = "%",
             helper = null,
+            presets = listOf(0, 25, 50, 75, 100),
             onDismiss = { dialog = null },
             onConfirm = { v -> vm.command { setFanSpeed(s.id, d.fan, v) }; dialog = null },
         )
@@ -728,11 +741,24 @@ private fun PrinterCard(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SPEED_NAMES.forEachIndexed { i, name ->
                         val level = i + 1
-                        val onClick = { vm.command { setPrintSpeed(s.id, level) }; dialog = null }
-                        if (level == s.speedLevel) {
-                            Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(name) }
-                        } else {
-                            OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(name) }
+                        val current = level == s.speedLevel
+                        Surface(
+                            onClick = { vm.command { setPrintSpeed(s.id, level) }; dialog = null },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        SPEED_NOTES.getOrElse(i) { "" },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (current) Icon(Icons.Filled.CheckCircle, contentDescription = "Current", tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                 }
@@ -1025,7 +1051,11 @@ private fun StatTile(
 }
 
 @Composable
-private fun AmsView(u: BbAms) {
+private fun AmsView(u: BbAms, s: BbStatus, vm: BambuddyViewModel) {
+    var showDry by remember { mutableStateOf(false) }
+    val scheduled by vm.scheduledDryings.collectAsState()
+    val mine = scheduled.filter { it.printerId == s.id && it.amsId == u.id }
+    if (showDry) DryingDialog(s, u, vm) { showDry = false }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -1033,8 +1063,7 @@ private fun AmsView(u: BbAms) {
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val name = if (u.isHt) "AMS HT" else "AMS ${('A' + (u.id % 26))}"
-                Text(name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                Text(u.displayName(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
                 val info = listOfNotNull(
                     u.humidity?.let { "$it% RH" },
                     u.temp?.let { "${it.roundToInt()}°C" },
@@ -1042,7 +1071,18 @@ private fun AmsView(u: BbAms) {
                 if (info.isNotBlank()) {
                     Text(info, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (u.canDry(s) && !u.drying) {
+                    IconButton(onClick = { showDry = true }) {
+                        Icon(
+                            Icons.Filled.LocalFireDepartment,
+                            contentDescription = "Dry filament",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
+            if (u.drying) DryingStrip(s, u, vm)
+            if (mine.isNotEmpty()) ScheduledDryRows(mine, vm)
             Row(modifier = Modifier.fillMaxWidth()) {
                 u.trays.forEach { TrayView(it, Modifier.weight(1f)) }
             }
@@ -1080,6 +1120,25 @@ private fun TrayView(t: BbTray, modifier: Modifier = Modifier, showRemain: Boole
     }
 }
 
+/** Nozzle moves 1°C at a time; bed and chamber 5°C, like the printer's own screen. */
+private fun tempStep(label: String): Int = if ("nozzle" in label.lowercase()) 1 else 5
+
+/** Common targets offered as one-tap chips in the temperature dialog. */
+private fun tempPresets(label: String, max: Int): List<Int> {
+    val l = label.lowercase()
+    return when {
+        "nozzle" in l -> listOf(0, 190, 220, 250, 280)
+        "bed" in l -> listOf(0, 35, 55, 65, 90, 100)
+        "chamber" in l -> listOf(0, 35, 45, 55, 65)
+        else -> listOf(0)
+    }.filter { it <= max }
+}
+
+/**
+ * Big value, slider, +/- and one-tap presets. Used for temperatures and fans.
+ * Moves in `step`s (nozzle 1, bed/chamber 5, fans 10), like the printer's own screen.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun NumberDialog(
     title: String,
@@ -1087,29 +1146,59 @@ private fun NumberDialog(
     max: Int,
     unit: String,
     helper: String?,
+    presets: List<Int> = emptyList(),
+    step: Int = 10,
     onDismiss: () -> Unit,
     onConfirm: (Int) -> Unit,
 ) {
-    var text by remember { mutableStateOf(initial.toString()) }
-    val value = text.toIntOrNull()
-    val valid = value != null && value in 0..max
+    fun snap(v: Int) = ((v.toFloat() / step).roundToInt() * step).coerceIn(0, max)
+    var value by remember { mutableStateOf(snap(initial)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it.filter { c -> c.isDigit() }.take(3) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                suffix = { Text(unit) },
-                supportingText = { Text(helper?.let { "$it (max $max)" } ?: "0 to $max") },
-                isError = !valid,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    OutlinedButton(onClick = { value = snap(value - step) }) { Text("-$step") }
+                    Text(
+                        if (value == 0 && unit == "°C") "Off" else "$value$unit",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(onClick = { value = snap(value + step) }) { Text("+$step") }
+                }
+                Slider(
+                    value = value.toFloat(),
+                    onValueChange = { value = snap(it.roundToInt()) },
+                    valueRange = 0f..max.toFloat(),
+                    // Notches every `step`; single-degree steps are too fine for notches, so slide freely.
+                    steps = if (step <= 1) 0 else (max / step - 1).coerceAtLeast(0),
+                )
+                if (presets.isNotEmpty()) {
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        presets.forEach { p ->
+                            FilterChip(
+                                selected = value == p,
+                                onClick = { value = p },
+                                label = { Text(if (p == 0 && unit == "°C") "Off" else "$p$unit") },
+                            )
+                        }
+                    }
+                }
+                if (helper != null) {
+                    Text(helper, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         },
-        confirmButton = {
-            TextButton(onClick = { if (valid) onConfirm(value!!) }, enabled = valid) { Text("Set") }
-        },
+        confirmButton = { TextButton(onClick = { onConfirm(value) }) { Text("Set") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

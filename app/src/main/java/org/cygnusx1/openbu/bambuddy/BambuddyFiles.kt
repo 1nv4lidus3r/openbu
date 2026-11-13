@@ -1,5 +1,10 @@
 package org.cygnusx1.openbu.bambuddy
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.ViewInAr
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -518,11 +523,15 @@ fun BambuddyFilesScreen(
                                 onCheckedChange = { on -> checked = if (on) checked + f.path else checked - f.path },
                             )
                         }
-                        Icon(
-                            imageVector = if (f.isDir) Icons.Filled.Folder else Icons.Filled.Description,
-                            contentDescription = null,
-                            tint = if (f.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        val (icon, tint) = fileIcon(f)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(tint.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+                        }
                         Spacer(Modifier.size(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(f.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -781,6 +790,23 @@ private fun downloadToPhone(context: Context, vm: BambuddyViewModel, printerId: 
         conn.disconnect()
     }
     return "Downloads/BamMate/${file.name}"
+}
+
+private val FolderAmber = Color(0xFFF59E0B)
+private val VideoPurple = Color(0xFFA78BFA)
+private val ImageGreen = Color(0xFF22C55E)
+
+/** Icon and colour by kind: folders, print files (.3mf / .gcode), videos, images, the rest. */
+@Composable
+private fun fileIcon(f: BbFile): Pair<ImageVector, Color> {
+    if (f.isDir) return Icons.Filled.Folder to FolderAmber
+    val ext = f.name.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "3mf", "gcode", "stl", "step", "obj" -> Icons.Filled.ViewInAr to MaterialTheme.colorScheme.primary
+        "mp4", "avi", "mov", "mkv" -> Icons.Filled.Movie to VideoPurple
+        "jpg", "jpeg", "png", "webp" -> Icons.Filled.Photo to ImageGreen
+        else -> Icons.Filled.Description to MaterialTheme.colorScheme.onSurfaceVariant
+    }
 }
 
 private enum class FileSort(val label: String) {

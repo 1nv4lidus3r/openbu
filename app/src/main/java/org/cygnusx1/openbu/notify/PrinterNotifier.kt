@@ -14,6 +14,7 @@ import org.cygnusx1.openbu.R
 import org.cygnusx1.openbu.bambuddy.BbMaintPrinter
 import org.cygnusx1.openbu.bambuddy.BbPlug
 import org.cygnusx1.openbu.bambuddy.BbStatus
+import org.cygnusx1.openbu.bambuddy.displayName
 import org.cygnusx1.openbu.network.PrinterStatus
 import org.cygnusx1.openbu.network.SavedPrinter
 import java.time.LocalDateTime
@@ -74,6 +75,8 @@ class PrinterNotifier(private val context: Context) {
 
     private val tracks = ConcurrentHashMap<String, Track>()
     private val reminders = ConcurrentHashMap<String, Reminders>()
+    /** Last known drying state per AMS ("bb:<printer>:<ams>"). */
+    private val drying = ConcurrentHashMap<String, Boolean>()
 
     /** Direct (MQTT) report from a saved printer, used in fallback mode. */
     fun onReport(printer: SavedPrinter, status: PrinterStatus, prefs: SharedPreferences) {
@@ -139,6 +142,18 @@ class PrinterNotifier(private val context: Context) {
                 }
             },
         )
+
+        // Drying finished (or stopped) on an AMS unit.
+        s.ams.forEach { u ->
+            val dk = "$key:${u.id}"
+            val was = drying.put(dk, u.drying)
+            if (was == true && !u.drying && prefs.getBoolean(NotifyPrefs.KEY_FINISHED, true)) {
+                val what = u.dryFilament?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                // Fires both when the time runs out and when someone stops it, so say "ended".
+                post(dk, TYPE_DRY, NotifyChannels.REMINDERS, "Drying ended",
+                    "${u.displayName()} on $name has stopped drying$what.")
+            }
+        }
 
         // --- reminders ---
         val now = System.currentTimeMillis()
@@ -346,6 +361,7 @@ class PrinterNotifier(private val context: Context) {
         private const val TYPE_ALMOST = 6
         private const val TYPE_IDLE = 7
         private const val TYPE_MAINT = 8
+        private const val TYPE_DRY = 9
 
         private const val ALMOST_MIN = 10
         private const val PLATE_REMIND_MS = 15 * 60_000L

@@ -23,6 +23,9 @@ data class BbTray(
     val type: String,
     val remain: Int,
     val exists: Boolean,
+    /** Recommended drying temperature / hours for this filament, when Bambuddy knows them. */
+    val dryingTemp: Int? = null,
+    val dryingHours: Int? = null,
 )
 
 data class BbAms(
@@ -31,7 +34,17 @@ data class BbAms(
     val humidity: Int?,
     val temp: Double?,
     val trays: List<BbTray>,
-)
+    /** e.g. "ams", "n3f" (AMS 2 Pro), "n3s" (AMS HT); the original AMS has no heater. */
+    val moduleType: String = "",
+    /** Non-zero while the unit is drying. */
+    val dryStatus: Int = 0,
+    /** Drying time left in minutes (0 when not drying). */
+    val dryMinutesLeft: Int = 0,
+    val dryTargetTemp: Int? = null,
+    val dryFilament: String? = null,
+) {
+    val drying: Boolean get() = dryStatus != 0 || dryMinutesLeft > 0
+}
 
 data class BbHms(val code: String, val description: String?, val severity: Int)
 
@@ -61,6 +74,8 @@ data class BbStatus(
     val stage: String? = null,
     /** True when Bambuddy has a plate picture for the current print. */
     val hasCover: Boolean = false,
+    val supportsDrying: Boolean = false,
+    val supportsDryingWhilePrinting: Boolean = false,
     // Unmodified server response, shown in the app's "Raw data" dialog for troubleshooting.
     val raw: String,
 )
@@ -134,6 +149,8 @@ private fun parseTray(o: JSONObject): BbTray = BbTray(
     type = o.stringOrNull("tray_type") ?: "",
     remain = if (o.has("remain") && !o.isNull("remain")) o.optInt("remain") else -1,
     exists = if (o.has("exists") && !o.isNull("exists")) o.optBoolean("exists") else true,
+    dryingTemp = o.intOrNull("drying_temp")?.takeIf { it > 0 },
+    dryingHours = o.intOrNull("drying_time")?.takeIf { it > 0 },
 )
 
 private fun trays(arr: JSONArray?): List<BbTray> {
@@ -171,6 +188,11 @@ fun parseStatus(body: String): BbStatus {
             humidity = u.intOrNull("humidity"),
             temp = u.doubleOrNull("temp"),
             trays = trays(u.optJSONArray("tray")),
+            moduleType = u.stringOrNull("module_type") ?: "",
+            dryStatus = u.optInt("dry_status", 0),
+            dryMinutesLeft = u.optInt("dry_time", 0),
+            dryTargetTemp = u.intOrNull("dry_target_temp")?.takeIf { it > 0 },
+            dryFilament = u.stringOrNull("dry_filament"),
         )
     }
 
@@ -213,6 +235,8 @@ fun parseStatus(body: String): BbStatus {
         awaitingPlateClear = o.optBoolean("awaiting_plate_clear", false),
         stage = o.stringOrNull("stg_cur_name"),
         hasCover = o.stringOrNull("cover_url") != null,
+        supportsDrying = o.optBoolean("supports_drying", false),
+        supportsDryingWhilePrinting = o.optBoolean("supports_drying_while_printing", false),
         raw = body,
     )
 }

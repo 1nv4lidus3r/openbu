@@ -136,6 +136,45 @@ class BambuddyClient(baseUrl: String, private val apiKey: String) {
         request("POST", "/printers/$id/print/skip-objects", jsonBody = objectIds.joinToString(prefix = "[", postfix = "]"))
     }
 
+    // --- AMS drying ---
+
+    /** Start drying now. temp 45-85 °C, hours 1-24. */
+    fun startDrying(id: Int, amsId: Int, temp: Int, hours: Int, filament: String, rotateTray: Boolean) {
+        request(
+            "POST", "/printers/$id/drying/start",
+            mapOf(
+                "ams_id" to amsId.toString(),
+                "temp" to temp.coerceIn(45, 85).toString(),
+                "duration" to hours.coerceIn(1, 24).toString(),
+                "filament" to filament,
+                "rotate_tray" to rotateTray.toString(),
+            ),
+        )
+    }
+
+    fun stopDrying(id: Int, amsId: Int) {
+        request("POST", "/printers/$id/drying/stop", mapOf("ams_id" to amsId.toString()))
+    }
+
+    /** Let Bambuddy start drying later. startAfter is an ISO-8601 date-time with offset. */
+    fun scheduleDrying(id: Int, amsId: Int, temp: Int, hours: Int, filament: String, rotateTray: Boolean, startAfter: String) {
+        val body = JSONObject()
+            .put("printer_id", id)
+            .put("ams_id", amsId)
+            .put("temp", temp.coerceIn(45, 85))
+            .put("duration_hours", hours.coerceIn(1, 24))
+            .put("filament", filament)
+            .put("rotate_tray", rotateTray)
+            .put("start_after", startAfter)
+        request("POST", "/scheduled-dryings", jsonBody = body.toString())
+    }
+
+    fun scheduledDryings(): List<BbScheduledDry> = parseScheduledDryings(request("GET", "/scheduled-dryings"))
+
+    fun cancelScheduledDrying(scheduleId: Int) {
+        request("DELETE", "/scheduled-dryings/$scheduleId")
+    }
+
     // --- maintenance & stats ---
 
     fun maintenanceOverview(): List<BbMaintPrinter> = parseMaintOverview(request("GET", "/maintenance/overview"))

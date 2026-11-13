@@ -52,6 +52,11 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
     private val plugCache = mutableMapOf<Int, BbPlug?>()
     private var pollCount = 0
 
+    private val _scheduledDryings = MutableStateFlow<List<BbScheduledDry>>(emptyList())
+    /** Drying runs scheduled in Bambuddy that haven't started yet. */
+    val scheduledDryings: StateFlow<List<BbScheduledDry>> = _scheduledDryings.asStateFlow()
+    @Volatile private var dryingsDirty = true
+
     private val _maintenance = MutableStateFlow<List<BbMaintPrinter>>(emptyList())
     /** Maintenance overview, refreshed every few minutes (and whenever the screen loads it). */
     val maintenance: StateFlow<List<BbMaintPrinter>> = _maintenance.asStateFlow()
@@ -99,6 +104,8 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         _statuses.value = emptyList()
         _power.value = emptyMap()
         _maintenance.value = emptyList()
+        _scheduledDryings.value = emptyList()
+        dryingsDirty = true
         synchronized(plugCache) { plugCache.clear() }
         pollCount = 0
         _error.value = null
@@ -146,6 +153,14 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
             _statuses.value = list
             _error.value = null
             if (pollCount % POWER_EVERY == 0) refreshPower(c, list.map { it.id }, lookupPlugs = pollCount % PLUG_LOOKUP_EVERY == 0)
+            if (dryingsDirty || pollCount % DRYINGS_EVERY == 0) {
+                dryingsDirty = false
+                try {
+                    _scheduledDryings.value = withContext(Dispatchers.IO) { c.scheduledDryings() }.filter { it.pending }
+                } catch (e: Exception) {
+                    Log.w(TAG, "scheduled dryings refresh failed", e)
+                }
+            }
             if (pollCount % MAINT_EVERY == 0) {
                 try {
                     _maintenance.value = withContext(Dispatchers.IO) { c.maintenanceOverview() }
@@ -234,6 +249,7 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 c.block()
+                dryingsDirty = true // cheap; picks up a just-scheduled or cancelled drying
                 delay(700) // let the printer apply the change before reading it back
                 refreshOnce()
             } catch (e: Exception) {
@@ -257,5 +273,6 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         private const val POWER_EVERY = 3 // ~9 s
         private const val PLUG_LOOKUP_EVERY = 30 // ~90 s
         private const val MAINT_EVERY = 100 // ~5 min
+        private const val DRYINGS_EVERY = 10 // ~30 s
     }
 }
