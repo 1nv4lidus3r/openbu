@@ -1,5 +1,6 @@
 package org.cygnusx1.openbu.bambuddy
 
+import org.cygnusx1.openbu.ui.SettingsGroup
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
 import androidx.compose.material.icons.filled.BarChart
@@ -169,13 +170,20 @@ fun BambuddyHome(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (!configured) {
-                ServerForm(
-                    title = "Welcome to BamMate",
-                    initialUrl = baseUrl,
-                    initialKey = apiKey,
-                    error = error,
-                    onSave = { url, key -> vm.saveConfig(url, key) },
-                )
+                SettingsGroup(title = null) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ServerForm(
+                            title = "Welcome to BamMate",
+                            initialUrl = baseUrl,
+                            initialKey = apiKey,
+                            error = error,
+                            onSave = { url, key -> vm.saveConfig(url, key) },
+                        )
+                    }
+                }
                 TextButton(onClick = onUseDirectConnection, modifier = Modifier.fillMaxWidth()) {
                     Text("No Bambuddy server? Connect to a printer directly")
                 }
@@ -247,24 +255,33 @@ fun BambuddySettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            ServerForm(
-                title = "Server",
-                initialUrl = baseUrl,
-                initialKey = apiKey,
-                error = error,
-                onSave = { url, key ->
-                    vm.saveConfig(url, key)
-                    onBack()
-                },
-            )
-            Card(modifier = Modifier.fillMaxWidth()) {
+            SettingsGroup(title = "Server") {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ServerForm(
+                        title = "Bambuddy server",
+                        initialUrl = baseUrl,
+                        initialKey = apiKey,
+                        error = error,
+                        onSave = { url, key ->
+                            vm.saveConfig(url, key)
+                            onBack()
+                        },
+                    )
+                }
+            }
+            SettingsGroup(title = "Fallback") {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)) {
                         Text("Use direct printer connection", style = MaterialTheme.typography.bodyLarge)
                         Text(
                             "Skip the Bambuddy server and talk to the printers over your network, " +
@@ -659,8 +676,12 @@ private fun PrinterCard(
                 SectionLabel("Filaments")
                 s.ams.forEach { AmsView(it) }
                 if (s.external.isNotEmpty()) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(8.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                             Text("External", style = MaterialTheme.typography.labelLarge)
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 s.external.forEach { TrayView(it, Modifier.weight(1f), showRemain = false) }
@@ -1005,8 +1026,12 @@ private fun StatTile(
 
 @Composable
 private fun AmsView(u: BbAms) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(8.dp)) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val name = if (u.isHt) "AMS HT" else "AMS ${('A' + (u.id % 26))}"
                 Text(name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
@@ -1031,11 +1056,15 @@ private fun TrayView(t: BbTray, modifier: Modifier = Modifier, showRemain: Boole
     Column(modifier = modifier.padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
-                .size(28.dp)
+                .size(34.dp)
                 .background(if (empty) Color.Transparent else parseTrayColor(t.colorHex), CircleShape)
-                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                .border(
+                    width = if (empty) 1.dp else 2.dp,
+                    color = if (empty) MaterialTheme.colorScheme.outline else Color.White.copy(alpha = 0.12f),
+                    shape = CircleShape,
+                ),
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             if (empty) "Empty" else t.type,
             style = MaterialTheme.typography.labelSmall,

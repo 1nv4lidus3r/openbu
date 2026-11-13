@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -179,9 +180,10 @@ fun GeneralSettingsScreen(
             }
             } // end direct-connection options
 
-            Spacer(modifier = Modifier.height(24.dp))
+            if (showDirectOptions) Spacer(modifier = Modifier.height(24.dp))
 
-            // Print notifications master toggle
+            // Print notifications (grouped like the rest of the app)
+            SettingsGroup(title = "Print notifications") {
             NotifySwitchRow(
                 title = stringResource(R.string.notify_setting_title),
                 description = stringResource(R.string.notify_setting_desc),
@@ -211,11 +213,15 @@ fun GeneralSettingsScreen(
                     text = stringResource(R.string.notify_permission_denied),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
 
             if (notifyEnabled) {
-                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_finished),
                     checked = notifyFinished,
@@ -224,7 +230,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_FINISHED, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_failed),
                     checked = notifyFailed,
@@ -233,7 +238,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_FAILED, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_paused),
                     checked = notifyPaused,
@@ -242,7 +246,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_PAUSED, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_hms),
                     checked = notifyHms,
@@ -251,7 +254,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_HMS, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_almost),
                     description = stringResource(R.string.notify_setting_almost_desc),
@@ -261,7 +263,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_ALMOST, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_plate),
                     description = stringResource(R.string.notify_setting_plate_desc),
@@ -271,7 +272,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_PLATE, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_idle),
                     description = stringResource(R.string.notify_setting_idle_desc),
@@ -281,7 +281,6 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_IDLE_POWER, it)?.apply()
                     },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 NotifySwitchRow(
                     title = stringResource(R.string.notify_setting_maint),
                     description = stringResource(R.string.notify_setting_maint_desc),
@@ -291,7 +290,10 @@ fun GeneralSettingsScreen(
                         notifyPrefs?.edit()?.putBoolean(NotifyPrefs.KEY_MAINT, it)?.apply()
                     },
                 )
+            }
+            } // end Print notifications group
 
+            if (notifyEnabled) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.notify_battery_hint),
@@ -323,7 +325,9 @@ private fun NotifySwitchRow(
     description: String? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {

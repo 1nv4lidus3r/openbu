@@ -107,141 +107,50 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Bambuddy button
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenBambuddy,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Cloud,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 16.dp),
+            SettingsGroup(title = "Connection") {
+                SettingsNavRow(
+                    icon = Icons.Filled.Cloud,
+                    title = stringResource(R.string.bambuddy_title),
+                    subtitle = stringResource(R.string.bambuddy_desc),
+                    onClick = onOpenBambuddy,
+                )
+                if (showRelay) {
+                    SettingsDivider()
+                    SettingsNavRow(
+                        icon = Icons.Filled.Wifi,
+                        title = stringResource(R.string.remote_relay),
+                        subtitle = stringResource(R.string.remote_relay_desc),
+                        onClick = onOpenRelaySettings,
                     )
-                    Column {
-                        Text(
-                            text = stringResource(R.string.bambuddy_title),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = stringResource(R.string.bambuddy_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // General Settings button
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenGeneralSettings,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 16.dp),
-                    )
-                    Column {
-                        Text(
-                            text = stringResource(R.string.general),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = stringResource(R.string.general_settings_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Remote Relay button
-            if (showRelay) Card(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenRelaySettings,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Wifi,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 16.dp),
-                    )
-                    Column {
-                        Text(
-                            text = stringResource(R.string.remote_relay),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = stringResource(R.string.remote_relay_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            if (showRelay) Spacer(modifier = Modifier.height(12.dp))
-
-            // Debugging Settings button
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenDebuggingSettings,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.BugReport,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 16.dp),
-                    )
-                    Column {
-                        Text(
-                            text = stringResource(R.string.debug),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = stringResource(R.string.debug_settings_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            SettingsGroup(title = "App") {
+                SettingsNavRow(
+                    icon = Icons.Filled.Settings,
+                    title = stringResource(R.string.general),
+                    subtitle = if (showRelay) stringResource(R.string.general_settings_desc) else "Print notifications and alerts",
+                    onClick = onOpenGeneralSettings,
+                )
+                SettingsDivider()
+                SettingsNavRow(
+                    icon = Icons.Filled.BugReport,
+                    title = stringResource(R.string.debug),
+                    subtitle = stringResource(R.string.debug_settings_desc),
+                    onClick = onOpenDebuggingSettings,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingsDivider()
+                SettingsNavRow(
+                    icon = Icons.Filled.Info,
+                    title = stringResource(R.string.about_openbu),
+                    subtitle = stringResource(R.string.version, versionName),
+                    onClick = { showAboutDialog = true },
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

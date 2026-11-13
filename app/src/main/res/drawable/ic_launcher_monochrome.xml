@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-colour layer for Android 13+ themed icons (the system tints it).
+     The 24-unit printer drawing (same as the status-bar icon) is scaled 2.4x and centred, so it
+     stays inside the adaptive-icon safe zone on round and squircle masks. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.4"
+        android:scaleY="2.4"
+        android:translateX="25.2"
+        android:translateY="25.2">
+        <!-- frame -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M5,2h14a2,2 0,0 1,2 2v16a2,2 0,0 1,-2 2H5a2,2 0,0 1,-2 -2V4a2,2 0,0 1,2 -2z M4.75,3.75v16.5h14.5V3.75z" />
+        <!-- gantry, print head and nozzle -->
+        <path android:fillColor="#FFFFFFFF" android:pathData="M4.75,5.5h14.5v1.5H4.75z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M10,7h4v2.25h-4z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M10.75,9.25h2.5L12,11z" />
+        <!-- printed part and bed -->
+        <path android:fillColor="#FFFFFFFF" android:pathData="M10,13.25h4v1.75h-4z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M8.5,15.5h7v1.75h-7z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M6.5,18h11v1.25h-11z" />
+    </group>
+</vector>
