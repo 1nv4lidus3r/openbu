@@ -79,6 +79,7 @@ fun ConnectionScreen(
     onConnect: (ip: String, accessCode: String, serialNumber: String, manualMode: Boolean) -> Unit,
     onRetry: () -> Unit = {},
     onDeletePrinter: (serialNumber: String) -> Unit = {},
+    onBackToBambuddy: (() -> Unit)? = null,
 ) {
     var ip by rememberSaveable { mutableStateOf("") }
     var accessCode by rememberSaveable { mutableStateOf("") }
@@ -155,6 +156,10 @@ fun ConnectionScreen(
             style = TextStyle(fontSize = 32.sp),
             color = MaterialTheme.colorScheme.onBackground,
         )
+
+        if (onBackToBambuddy != null) {
+            TextButton(onClick = onBackToBambuddy) { Text("Back to Bambuddy") }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 

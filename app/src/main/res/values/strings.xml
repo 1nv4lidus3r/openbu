@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Openbu</string>
+    <string name="app_name">BamMate</string>
 
     <!-- Common actions -->
     <string name="ok">OK</string>
@@ -30,7 +30,8 @@
     <string name="timelapses">Timelapses</string>
     <string name="skip_objects">Skip Objects</string>
     <string name="remote_relay">Remote Relay</string>
-    <string name="about_openbu">About Openbu</string>
+    <string name="about_openbu">About BamMate</string>
+    <string name="about_credits">BamMate controls your Bambu Lab printers through your own Bambuddy server.\n\nBased on Openbu by cygnusx-1, released under the GNU Affero General Public License v3. This app is released under the same license. Source code: https://github.com/1nv4lidus3r/openbu\n\nBamMate is an independent project. It is not affiliated with or endorsed by Bambu Lab or the Bambuddy project.</string>
     <string name="hms_errors">HMS Errors</string>
     <string name="set_filament">Set Filament</string>
     <string name="print_speed">Print Speed</string>
@@ -206,4 +207,40 @@
 
     <!-- Skip objects -->
     <string name="already_skipped">Already skipped</string>
+
+    <!-- Bambuddy -->
+    <string name="bambuddy_title">Bambuddy server</string>
+    <string name="bambuddy_desc">Server address, API key and direct-connection fallback</string>
+
+    <!-- Print notifications -->
+    <string name="notify_channel_service">Background monitoring</string>
+    <string name="notify_channel_finished">Print finished</string>
+    <string name="notify_channel_failed">Print failed or stopped</string>
+    <string name="notify_channel_paused">Print paused</string>
+    <string name="notify_channel_hms">Printer errors (HMS)</string>
+    <string name="notify_service_title">Watching your printers</string>
+    <string name="notify_service_text">Print alerts are on. Tap to open.</string>
+    <string name="notify_title_finished">Print finished</string>
+    <string name="notify_title_failed">Print failed or stopped</string>
+    <string name="notify_title_paused">Print paused</string>
+    <string name="notify_title_hms">Printer reported an error</string>
+    <string name="notify_setting_title">Print notifications</string>
+    <string name="notify_setting_desc">Alert me when a print finishes, fails or pauses, even with the app closed. Keeps a small notification showing while active.</string>
+    <string name="notify_setting_finished">Print finished</string>
+    <string name="notify_setting_failed">Print failed or stopped</string>
+    <string name="notify_setting_paused">Print paused</string>
+    <string name="notify_setting_hms">Printer errors (HMS codes)</string>
+    <string name="notify_permission_denied">Notification permission is turned off for this app. Allow it in the app settings, then try again.</string>
+    <string name="notify_battery_hint">If alerts stop arriving when the screen is off, set this app\'s battery usage to Unrestricted in the app settings.</string>
+    <string name="notify_open_app_settings">Open app settings</string>
+    <string name="notify_channel_reminders">Reminders</string>
+    <string name="notify_setting_maint">Maintenance due</string>
+    <string name="notify_setting_maint_desc">When a maintenance task set up in Bambuddy comes due</string>
+    <string name="widget_description">Your printers at a glance: status, time left and progress</string>
+    <string name="notify_setting_almost">Almost done</string>
+    <string name="notify_setting_almost_desc">About 10 minutes before a print finishes</string>
+    <string name="notify_setting_plate">Plate needs clearing</string>
+    <string name="notify_setting_plate_desc">If the plate still hasn\'t been cleared 15 minutes after a print</string>
+    <string name="notify_setting_idle">Idle but still powered</string>
+    <string name="notify_setting_idle_desc">After an hour idle with the smart plug on (skipped when auto power-off is set)</string>
 </resources>

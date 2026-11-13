@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
@@ -42,10 +43,13 @@ import org.cygnusx1.openbu.R
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onOpenBambuddy: () -> Unit,
     onOpenGeneralSettings: () -> Unit,
     onOpenRelaySettings: () -> Unit,
     onOpenDebuggingSettings: () -> Unit,
     onBack: () -> Unit,
+    /** The SOCKS relay only applies to direct printer connections (fallback mode). */
+    showRelay: Boolean = true,
 ) {
     var showAboutDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -58,7 +62,14 @@ fun SettingsScreen(
             onDismissRequest = { showAboutDialog = false },
             title = { Text(stringResource(R.string.about_openbu)) },
             text = {
-                Text(stringResource(R.string.version, versionName))
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.version, versionName))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.about_credits),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = { showAboutDialog = false }) {
@@ -99,6 +110,40 @@ fun SettingsScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
+            // Bambuddy button
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onOpenBambuddy,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Cloud,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 16.dp),
+                    )
+                    Column {
+                        Text(
+                            text = stringResource(R.string.bambuddy_title),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.bambuddy_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // General Settings button
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -134,7 +179,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Remote Relay button
-            Card(
+            if (showRelay) Card(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenRelaySettings,
             ) {
@@ -165,7 +210,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            if (showRelay) Spacer(modifier = Modifier.height(12.dp))
 
             // Debugging Settings button
             Card(

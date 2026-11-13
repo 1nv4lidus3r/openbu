@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bambuddy is normally reached over plain http:// on the home network (for example
+  http://192.168.1.50:8000), and Android blocks cleartext traffic by default.
+  The printer connections in this app use their own TLS sockets and are not affected.
+  If you put Bambuddy behind HTTPS, you can remove this file and the
+  android:networkSecurityConfig attribute in AndroidManifest.xml.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

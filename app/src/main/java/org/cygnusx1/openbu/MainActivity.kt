@@ -7,6 +7,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import android.util.Log
 import androidx.annotation.OptIn
@@ -35,6 +36,10 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import org.cygnusx1.openbu.data.FilamentRepository
+import org.cygnusx1.openbu.bambuddy.BambuddyHome
+import org.cygnusx1.openbu.bambuddy.BambuddySettingsScreen
+import org.cygnusx1.openbu.bambuddy.BambuddyViewModel
+import org.cygnusx1.openbu.notify.PrinterMonitorService
 import org.cygnusx1.openbu.network.Socks5SocketFactory
 import org.cygnusx1.openbu.network.Socks5TlsSslSocketFactory
 import org.cygnusx1.openbu.ui.ConnectionScreen
@@ -87,17 +92,32 @@ class MainActivity : ComponentActivity() {
         return super.onKeyUp(keyCode, event)
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Keep the background print-alert service in step with the settings and saved printers.
+        PrinterMonitorService.sync(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The BamMate theme is always dark, so keep the system bar icons light.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
 
         setContent {
             val viewModel: BambuStreamViewModel = viewModel()
             viewModelRef = viewModel
+            val bbVm: BambuddyViewModel = viewModel()
+            val fallbackMode by bbVm.fallbackMode.collectAsState()
 
-            LifecycleResumeEffect(Unit) {
-                Log.d("AutoReconnect", "Activity resumed, calling retryIfNeeded")
-                viewModel.retryIfNeeded()
+            LifecycleResumeEffect(fallbackMode) {
+                // Direct printer connections are only used in fallback mode.
+                if (fallbackMode) {
+                    Log.d("AutoReconnect", "Activity resumed, calling retryIfNeeded")
+                    viewModel.retryIfNeeded()
+                }
                 onPauseOrDispose {}
             }
             var vlcResumeKey by remember { mutableStateOf(0) }
@@ -137,6 +157,7 @@ class MainActivity : ComponentActivity() {
                 var showRtspFullscreen by rememberSaveable { mutableStateOf(false) }
                 var showInternalRtspFullscreen by rememberSaveable { mutableStateOf(false) }
                 var showSettings by rememberSaveable { mutableStateOf(false) }
+                var showBambuddy by rememberSaveable { mutableStateOf(false) }
                 var showGeneralSettings by rememberSaveable { mutableStateOf(false) }
                 var showRelaySettings by rememberSaveable { mutableStateOf(false) }
                 var showDebuggingSettings by rememberSaveable { mutableStateOf(false) }
@@ -392,10 +413,31 @@ class MainActivity : ComponentActivity() {
                             },
                         )
                     }
+                    showBambuddy -> {
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        BackHandler {
+                            showBambuddy = false
+                            showSettings = true
+                        }
+                        BambuddySettingsScreen(
+                            onBack = {
+                                showBambuddy = false
+                                showSettings = true
+                            },
+                            onFallbackEnabled = {
+                                showBambuddy = false
+                                showSettings = false
+                            },
+                        )
+                    }
                     showSettings -> {
                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                         BackHandler { showSettings = false }
                         SettingsScreen(
+                            onOpenBambuddy = {
+                                showSettings = false
+                                showBambuddy = true
+                            },
                             onOpenGeneralSettings = {
                                 showSettings = false
                                 showGeneralSettings = true
@@ -409,6 +451,7 @@ class MainActivity : ComponentActivity() {
                                 showDebuggingSettings = true
                             },
                             onBack = { showSettings = false },
+                            showRelay = fallbackMode,
                         )
                     }
                     showGeneralSettings -> {
@@ -428,6 +471,7 @@ class MainActivity : ComponentActivity() {
                                 showGeneralSettings = false
                                 showSettings = true
                             },
+                            showDirectOptions = fallbackMode,
                         )
                     }
                     showRelaySettings -> {
@@ -475,6 +519,16 @@ class MainActivity : ComponentActivity() {
                                 showDebuggingSettings = false
                                 showSettings = true
                             },
+                        )
+                    }
+                    // Home screen: the Bambuddy printers list (unless direct-connection fallback is on)
+                    !fallbackMode -> {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        BambuddyHome(
+                            onOpenSettings = { showSettings = true },
+                            onUseDirectConnection = { bbVm.setFallback(true) },
+                            vm = bbVm,
                         )
                     }
                     connectionState == ConnectionState.Connected && showPrinterSettings -> {
@@ -664,6 +718,7 @@ class MainActivity : ComponentActivity() {
                             onDeletePrinter = { serial ->
                                 viewModel.deleteSavedPrinter(serial)
                             },
+                            onBackToBambuddy = { bbVm.setFallback(false) },
                         )
                     }
                 }
