@@ -30,13 +30,13 @@ android {
         targetSdk = 35
         // BamMate numbering: 0.0.x until beta. versionCode must keep increasing for updates to
         // install (the last Openbu-based build was 3), so it continues from there.
-        versionCode = 9
+        versionCode = 16
         // Base version only. The "-dirty" marker for builds from a tree with uncommitted changes
         // is applied to the APK/AAB *filenames* at execution time (see DirtyAwareTask), so it
         // can't go stale under the configuration cache and stays out of the user-visible manifest
         // version. A "-dirty" build is instead visible in the artifact filename (no automated
         // release guard exists yet).
-        versionName = "0.0.6"
+        versionName = "0.0.13"
     }
 
     signingConfigs {
@@ -280,6 +280,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    // Conscrypt: lets the printer storage (FTPS) data connection reuse the TLS session.
+    implementation("org.conscrypt:conscrypt-android:2.5.3")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     debugImplementation("androidx.compose.ui:ui-tooling")

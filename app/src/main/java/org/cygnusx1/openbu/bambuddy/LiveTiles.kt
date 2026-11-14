@@ -244,16 +244,45 @@ fun FanTile(label: String, percent: Int?, modifier: Modifier = Modifier, onClick
 
 // ------------------------------------------------------------------ shared motion helpers
 
-/** False when the phone's "Remove animations" setting is on: then nothing moves. */
-@Composable
-fun animationsEnabled(): Boolean {
-    val context = LocalContext.current
-    return remember {
-        runCatching {
-            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
-        }.getOrDefault(true)
+/**
+ * How much the app moves (Settings > Appearance > Motion):
+ * - FULL: everything, including the breathing glows and the attention effects;
+ * - SUBTLE: only motion that shows information (fans, rolling numbers, filling bars and spools);
+ * - OFF: nothing moves; colors, arrows and borders still show everything.
+ */
+enum class Motion { FULL, SUBTLE, OFF }
+
+/** The Motion level for everything below it; set once at the top of the app. */
+val LocalMotion = androidx.compose.runtime.staticCompositionLocalOf { Motion.FULL }
+
+/** Saved choices for the Motion setting. "system" follows the phone's "Remove animations". */
+object MotionPref {
+    const val KEY = "motion"
+    const val SYSTEM = "system"
+    const val FULL = "full"
+    const val SUBTLE = "subtle"
+    const val OFF = "off"
+
+    fun resolve(context: android.content.Context, pref: String?): Motion = when (pref) {
+        FULL -> Motion.FULL
+        SUBTLE -> Motion.SUBTLE
+        OFF -> Motion.OFF
+        else -> {
+            val phoneOff = runCatching {
+                Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            }.getOrDefault(false)
+            if (phoneOff) Motion.OFF else Motion.FULL
+        }
     }
 }
+
+/** True unless Motion is Off: fans spin, numbers roll, bars and spools fill smoothly. */
+@Composable
+fun animationsEnabled(): Boolean = LocalMotion.current != Motion.OFF
+
+/** Only with Motion on Full: breathing glows and other attention effects. */
+@Composable
+fun attentionAnimations(): Boolean = LocalMotion.current == Motion.FULL
 
 /**
  * A number that rolls smoothly to each new value instead of jumping. The first value shows as is
@@ -316,7 +345,7 @@ private fun Modifier.ringArc(p: Float, color: Color, track: Color, stroke: andro
 @Composable
 fun Modifier.stateGlow(color: Color?, breathing: Boolean, corner: androidx.compose.ui.unit.Dp = 20.dp): Modifier {
     if (color == null) return this
-    val pulse = if (breathing && animationsEnabled()) {
+    val pulse = if (breathing && attentionAnimations()) {
         val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "glow")
         val a by t.animateFloat(
             initialValue = 0.35f,

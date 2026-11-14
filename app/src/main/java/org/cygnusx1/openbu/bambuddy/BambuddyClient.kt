@@ -124,6 +124,23 @@ class BambuddyClient(baseUrl: String, private val apiKey: String) : PrinterBacke
     /** Tell Bambuddy the build plate has been cleared, so its queue may start the next job. */
     override fun clearPlate(id: Int) { request("POST", "/printers/$id/clear-plate") }
 
+    // --- jog (endpoints as used by Bambuddy's own jog controls) ---
+
+    override fun jogXY(id: Int, x: Int, y: Int) {
+        request("POST", "/printers/$id/xy-jog", mapOf("x" to x.toString(), "y" to y.toString()))
+    }
+
+    /** Bambuddy calls Z moves "bed jog" (the bed is what moves on Bambu printers). */
+    override fun jogZ(id: Int, distance: Int) {
+        request("POST", "/printers/$id/bed-jog", mapOf("distance" to distance.toString()))
+    }
+
+    override fun jogExtruder(id: Int, distance: Int) {
+        request("POST", "/printers/$id/extruder-jog", mapOf("distance" to distance.toString()))
+    }
+
+    override fun homeAll(id: Int) { request("POST", "/printers/$id/home") }
+
     // --- skip objects ---
 
     /**

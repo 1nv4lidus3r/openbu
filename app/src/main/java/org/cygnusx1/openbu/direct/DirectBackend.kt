@@ -2,6 +2,7 @@ package org.cygnusx1.openbu.direct
 
 import android.content.Context
 import android.util.Log
+import org.cygnusx1.openbu.bambuddy.BbObject
 import org.cygnusx1.openbu.bambuddy.BbObjects
 import org.cygnusx1.openbu.bambuddy.BbPrinter
 import org.cygnusx1.openbu.bambuddy.BbStatus
@@ -261,8 +262,41 @@ object DirectBackend : PrinterBackend {
     /** Only Bambuddy keeps a "plate needs clearing" flag; nothing to do on a direct connection. */
     override fun clearPlate(id: Int) = Unit
 
-    override fun printObjects(id: Int, reload: Boolean): BbObjects =
-        throw UnsupportedOperationException("Skipping objects needs a Bambuddy server for now")
+    /**
+     * Objects of the running print, read from its .3mf on the printer (plate_N.json holds each
+     * object's skip id and outline). Already skipped ones come from the printer's report (s_obj).
+     */
+    override fun printObjects(id: Int, reload: Boolean): BbObjects {
+        val l = link(id)
+        val state = l.state.snapshot().optJSONObject("print") ?: JSONObject()
+        val job = state.optString("subtask_name", "")
+        if (job.isBlank()) {
+            throw IOException("This print was started from the printer's screen, so its file isn't known. Skip objects there instead.")
+        }
+        val ftps = PrinterFtps(l.printer.ip, l.printer.accessCode)
+        val objects = JobFiles.objects(ftps, job, state.optString("gcode_file", "").ifBlank { null })
+            ?: throw IOException("Couldn't find \"$job\" on the printer's storage.")
+        val skipped = state.optJSONArray("s_obj")?.let { a -> (0 until a.length()).map { a.optInt(it) }.toSet() } ?: emptySet()
+        return BbObjects(
+            objects.map {
+                BbObject(
+                    id = it.id,
+                    name = it.name,
+                    skipped = it.id in skipped,
+                    x = (it.minX + it.maxX) / 2,
+                    y = (it.minY + it.maxY) / 2,
+                    bbox = listOf(it.minX, it.minY, it.maxX, it.maxY),
+                )
+            },
+            raw = objects.joinToString("\n"),
+        )
+    }
 
     override fun skipObjects(id: Int, objectIds: List<Int>) = send(id, DirectCommands.skipObjects(objectIds))
+
+    // Relative moves, then back to absolute mode so a later print isn't affected.
+    override fun jogXY(id: Int, x: Int, y: Int) = send(id, DirectCommands.gcode("G91\nG0 X$x Y$y F3000\nG90"))
+    override fun jogZ(id: Int, distance: Int) = send(id, DirectCommands.gcode("G91\nG0 Z$distance F600\nG90"))
+    override fun jogExtruder(id: Int, distance: Int) = send(id, DirectCommands.gcode("M83\nG1 E$distance F300"))
+    override fun homeAll(id: Int) = send(id, DirectCommands.gcode("G28"))
 }

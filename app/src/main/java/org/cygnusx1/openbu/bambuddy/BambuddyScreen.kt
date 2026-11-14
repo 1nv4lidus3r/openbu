@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.alpha
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.material.icons.filled.Speed
@@ -231,11 +232,13 @@ fun BambuddyHome(
                                 Button(onClick = onOpenDirectPrinters) { Text("Add a printer") }
                             }
                         }
-                    } else {
+                    } else if (loaded) {
                         Text(
-                            text = if (loaded) "No printers found on this Bambuddy server." else "Connecting...",
+                            text = "No printers found on this Bambuddy server.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    } else {
+                        LoadingCards()
                     }
                 }
                 if (statuses.isNotEmpty()) HomeSummary(statuses, if (direct) emptyList() else maintenance) { page = "maintenance" }
@@ -421,15 +424,25 @@ private fun PrinterCard(
                     .then(if (collapsible) Modifier.clickable(onClick = onToggle) else Modifier),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(
-                            stateColor(s),
-                            CircleShape,
-                        ),
-                )
-                Spacer(Modifier.size(10.dp))
+                // The first time a finished print is seen, a check draws itself in place of the dot.
+                val freshFinish = remember(s.id, s.job, s.state) {
+                    s.state == "FINISH" && s.awaitingPlateClear && vm.firstTimeFinished(s.id, s.job)
+                }
+                val celebrate = freshFinish && attentionAnimations()
+                if (celebrate) {
+                    FinishCheck(size = 22.dp)
+                    Spacer(Modifier.size(6.dp))
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(
+                                stateColor(s),
+                                CircleShape,
+                            ),
+                    )
+                    Spacer(Modifier.size(10.dp))
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(s.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
@@ -460,7 +473,8 @@ private fun PrinterCard(
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
-                if (expanded && s.connected && !direct) {
+                if (expanded && s.connected) {
+                    // Files work with both connections (Bambuddy or the printer's own FTPS).
                     IconButton(onClick = onOpenFiles) {
                         Icon(
                             imageVector = Icons.Filled.Folder,
@@ -468,6 +482,7 @@ private fun PrinterCard(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    // Camera: from Bambuddy, or straight from the printer on a direct connection.
                     IconButton(onClick = { cameraOn = !cameraOn }) {
                         Icon(
                             imageVector = if (cameraOn) Icons.Filled.VideocamOff else Icons.Filled.Videocam,
@@ -527,7 +542,17 @@ private fun PrinterCard(
                 )
             } else {
             if (cameraOn) {
-                BambuddyCameraView(printerId = s.id, vm = vm, onClose = { cameraOn = false })
+                if (direct) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val printer = remember(s.id) {
+                        org.cygnusx1.openbu.direct.DirectBackend.savedPrinters(context).firstOrNull { it.id == s.id }
+                    }
+                    if (printer != null) {
+                        org.cygnusx1.openbu.direct.DirectCameraView(printer, onClose = { cameraOn = false })
+                    }
+                } else {
+                    BambuddyCameraView(printerId = s.id, vm = vm, onClose = { cameraOn = false })
+                }
             }
             // Job details: plate picture, stage, name, progress and finish time
             if (s.job.isNotBlank() || active) {
@@ -535,10 +560,11 @@ private fun PrinterCard(
                     if (active) {
                         ProgressRing(progress, stateColor(s)) {
                             var hasPicture by remember(s.job) { mutableStateOf(false) }
-                            if (s.hasCover) {
+                            if (s.hasCover || direct) {
                                 PrintCover(
                                     printerId = s.id, jobKey = s.job, vm = vm,
                                     size = 62.dp, onLoaded = { hasPicture = true },
+                                    direct = direct, jobFile = s.jobFile,
                                 )
                             }
                             if (!hasPicture) {
@@ -662,22 +688,59 @@ private fun PrinterCard(
             }
 
             // Controls
+            var showJog by remember { mutableStateOf(false) }
+            val printing = s.state in setOf("RUNNING", "PAUSE", "PREPARE", "SLICING")
+            // Close the pad if a print starts while it's open.
+            LaunchedEffect(printing) { if (printing) showJog = false }
+            val jogAllowed by vm.jogEnabled.collectAsState()
+            if (showJog && !printing) {
+                if (jogAllowed) {
+                    JogDialog(s, vm) { showJog = false }
+                } else {
+                    AlertDialog(
+                        onDismissRequest = { showJog = false },
+                        title = { Text("Manual moves are off") },
+                        text = {
+                            Text(
+                                "Moving the print head and bed from your phone is off by default. To use it, turn on " +
+                                    "Settings > Printer control > Manual moves and accept the notice.",
+                            )
+                        },
+                        confirmButton = { TextButton(onClick = { showJog = false }) { Text("OK") } },
+                    )
+                }
+            }
             SectionLabel("Controls")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 ControlTile(
-                    icon = Icons.Filled.Lightbulb,
                     label = "Light",
                     value = if (s.light) "On" else "Off",
                     highlighted = s.light,
                     modifier = Modifier.weight(1f),
+                    icon = { LightBulb(on = s.light, size = 30.dp) },
                 ) { vm.control { setChamberLight(s.id, !s.light) } }
                 ControlTile(
-                    icon = Icons.Filled.Speed,
                     label = "Speed",
                     value = SPEED_NAMES.getOrElse(s.speedLevel - 1) { "Level ${s.speedLevel}" },
                     highlighted = false,
                     modifier = Modifier.weight(1f),
+                    icon = { Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 ) { dialog = CardDialog.Speed }
+                // Manual moves are only allowed when nothing is printing.
+                val busy = s.state in setOf("RUNNING", "PAUSE", "PREPARE", "SLICING")
+                val jogOn by vm.jogEnabled.collectAsState()
+                ControlTile(
+                    label = "Move",
+                    value = when {
+                        !jogOn -> "Off"
+                        busy -> "Printing"
+                        else -> "Jog pad"
+                    },
+                    highlighted = false,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                    icon = { Icon(Icons.Filled.OpenWith, contentDescription = null, modifier = Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                ) { showJog = true }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 if (s.state == "PAUSE") {
@@ -707,13 +770,11 @@ private fun PrinterCard(
                     Text("Stop")
                 }
             }
-            if (!direct) {
-                OutlinedButton(
-                    onClick = { dialog = CardDialog.Skip },
-                    enabled = active,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Skip objects") }
-            }
+            OutlinedButton(
+                onClick = { dialog = CardDialog.Skip },
+                enabled = active,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Skip objects") }
 
             // Errors
             if (s.hms.isNotEmpty()) {
@@ -855,6 +916,13 @@ private fun PrinterCard(
 
 @Composable
 private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () -> Unit) {
+    val direct by vm.fallbackMode.collectAsState()
+    // Allowed once printing has started (like the printer's own screen), not while the printer is
+    // still preparing (heating, leveling, calibrating). Bambuddy's web page waits for layer 2; if its
+    // API refuses an earlier skip, its error message is shown.
+    // Bambuddy reports the stage "Printing" while it prints, so only other stages count as preparing.
+    val preparingStage = s.stage?.takeIf { it.isNotBlank() && !it.startsWith("Printing", ignoreCase = true) }
+    val tooEarly = s.state == "PREPARE" || (s.state != "PAUSE" && preparingStage != null) || (s.layer ?: 0) < 1
     var result by remember { mutableStateOf<BbObjects?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -862,7 +930,7 @@ private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () 
 
     LaunchedEffect(s.id) {
         try {
-            result = vm.query { printObjects(s.id) }
+            result = vm.ask { printObjects(s.id) }
         } catch (e: Exception) {
             loadError = vm.describe(e)
         }
@@ -900,7 +968,7 @@ private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () 
                 // Prints started from the printer's own screen report a raw path like
                 // /data/Metadata/plate_5.gcode. Bambuddy never received that file, so its
                 // object list can be left over from another print.
-                if (s.job.startsWith("/") || s.job.endsWith(".gcode", ignoreCase = true)) {
+                if (!direct && (s.job.startsWith("/") || s.job.endsWith(".gcode", ignoreCase = true))) {
                     Text(
                         text = "This print looks like it was started from the printer's screen, so Bambuddy " +
                             "may not have its file and this list could belong to another print. Check the names before skipping.",
@@ -921,10 +989,36 @@ private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () 
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    else -> r.objects.forEachIndexed { index, o ->
-                        // Number repeated names (four "Cube"s become Cube #1..#4) in list order.
+                    else -> {
+                    if (r.objects.any { it.x != null || it.bbox != null }) {
+                        Spacer(Modifier.height(8.dp))
+                        SkipMap(
+                            objects = r.objects,
+                            selected = selected,
+                            model = s.model,
+                            onToggle = { oid -> selected = if (oid in selected) selected - oid else selected + oid },
+                        )
+                        Text(
+                            "Tap an object to mark it. Back of the plate is at the top.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                        )
+                    }
+                    if (tooEarly) {
+                        Text(
+                            "Skipping is available once printing starts" +
+                                (preparingStage?.let { " (now: $it)." } ?: "."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = LowAmber,
+                        )
+                    }
+                    r.objects.forEachIndexed { index, o ->
+                        // Number repeated names (four "Cube"s become Cube #1..#4) in list order,
+                        // unless the map's numbers already tell them apart.
                         val sameName = r.objects.filter { it.name == o.name }
-                        val label = if (sameName.size > 1) {
+                        val hasMap = r.objects.any { it.x != null || it.bbox != null }
+                        val label = if (sameName.size > 1 && !hasMap) {
                             "${o.name} #${r.objects.take(index + 1).count { it.name == o.name }}"
                         } else {
                             o.name
@@ -938,17 +1032,18 @@ private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () 
                                 },
                             )
                             Text(
-                                text = label + if (o.skipped) "  (already skipped)" else "",
+                                text = "${index + 1}   " + label + if (o.skipped) "  (already skipped)" else "",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = if (o.skipped) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
+                    }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { confirming = true }, enabled = selected.isNotEmpty()) {
+            TextButton(onClick = { confirming = true }, enabled = selected.isNotEmpty() && !tooEarly) {
                 Text("Skip selected (${selected.size})")
             }
         },
@@ -959,30 +1054,30 @@ private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () 
 /** Tappable tile with an icon, e.g. Light On / Speed Standard. */
 @Composable
 private fun ControlTile(
-    icon: ImageVector,
     label: String,
     value: String,
     highlighted: Boolean,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    icon: @Composable () -> Unit,
     onClick: () -> Unit,
 ) {
+    // Same shape and size as the temperature and fan tiles: icon on top, label, value.
     Surface(
         onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(14.dp),
         color = if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier,
+        modifier = modifier.alpha(if (enabled) 1f else 0.5f),
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-            }
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(modifier = Modifier.size(30.dp), contentAlignment = Alignment.Center) { icon() }
+            Spacer(Modifier.height(4.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
@@ -1225,6 +1320,15 @@ private fun NumberDialog(
 ) {
     fun snap(v: Int) = ((v.toFloat() / step).roundToInt() * step).coerceIn(0, max)
     var value by remember { mutableStateOf(snap(initial)) }
+    // A light tick each time the dial lands on a new step.
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var lastTicked by remember { mutableStateOf(value) }
+    LaunchedEffect(value) {
+        if (value != lastTicked) {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+            lastTicked = value
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -1295,11 +1399,15 @@ private fun PrintCover(
     vm: BambuddyViewModel,
     size: androidx.compose.ui.unit.Dp = 72.dp,
     onLoaded: () -> Unit = {},
+    direct: Boolean = false,
+    jobFile: String? = null,
 ) {
     var img by remember(printerId, jobKey) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    LaunchedEffect(printerId, jobKey) {
+    LaunchedEffect(printerId, jobKey, direct) {
         img = try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // Direct: read the picture from the print's file on the printer.
+                if (direct) return@withContext vm.directJobPicture(printerId, jobKey, jobFile)?.asImageBitmap()
                 val c = vm.currentClient() ?: return@withContext null
                 val conn = c.openPrintCover(printerId, c.cameraToken())
                 try {

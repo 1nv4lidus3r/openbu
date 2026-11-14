@@ -245,6 +245,7 @@ fun BambuddyFilesScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val source = remember(printerId) { vm.files(printerId) }
     var path by rememberSaveable { mutableStateOf("/") }
     var files by remember { mutableStateOf<List<BbFile>>(emptyList()) }
     var raw by remember { mutableStateOf("") }
@@ -289,9 +290,8 @@ fun BambuddyFilesScreen(
 
     LaunchedEffect(printerId) {
         storage = try {
-            val body = vm.query { storage(printerId) }
-            storageRaw = body
-            parseStorage(body)
+            val src = source ?: throw IllegalStateException("No connection to this printer")
+            withContext(Dispatchers.IO) { src.storage() }.also { storageRaw = src.lastRaw }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -304,9 +304,9 @@ fun BambuddyFilesScreen(
         loading = true
         error = null
         try {
-            val body = vm.query { listFiles(printerId, path) }
-            raw = body
-            files = parseFiles(body, path)
+            val src = source ?: throw IllegalStateException("No connection to this printer")
+            files = withContext(Dispatchers.IO) { src.list(path) }
+            raw = src.lastRaw
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -617,7 +617,7 @@ fun BambuddyFilesScreen(
                         toDelete.forEachIndexed { i, f ->
                             status = "Deleting ${i + 1} of ${toDelete.size}: ${f.name}"
                             try {
-                                vm.query { deleteFile(printerId, f.path) }
+                                withContext(Dispatchers.IO) { source!!.delete(f) }
                                 ok++
                             } catch (e: CancellationException) {
                                 throw e
@@ -646,7 +646,7 @@ fun BambuddyFilesScreen(
                     confirmDelete = null
                     scope.launch {
                         status = try {
-                            vm.query { deleteFile(printerId, f.path) }
+                            withContext(Dispatchers.IO) { source!!.delete(f) }
                             reload++
                             "Deleted ${f.name}"
                         } catch (e: CancellationException) {
@@ -698,16 +698,8 @@ private fun FileActionsDialog(
             thumbNote = "Loading preview..."
             try {
                 val bmp = withContext(Dispatchers.IO) {
-                    val client = vm.currentClient() ?: throw IllegalStateException("No server configured")
-                    val plate = parsePlateIndexes(client.filePlates(printerId, file.path)).first()
-                    val conn = client.openPlateThumbnail(printerId, file.path, plate, client.cameraToken())
-                    try {
-                        val code = conn.responseCode
-                        if (code !in 200..299) throw BambuddyException(code, "Preview not available (HTTP $code)")
-                        conn.inputStream.use { BitmapFactory.decodeStream(it) }
-                    } finally {
-                        conn.disconnect()
-                    }
+                    val src = vm.files(printerId) ?: throw IllegalStateException("No connection to this printer")
+                    src.thumbnail(file.path)
                 }
                 thumb = bmp?.asImageBitmap()
                 thumbNote = if (bmp == null) "No preview in this file" else null
@@ -772,12 +764,10 @@ private fun FileActionsDialog(
 
 /** Streams a printer file into the phone's Downloads/BamMate folder. Returns where it went. */
 private fun downloadToPhone(context: Context, vm: BambuddyViewModel, printerId: Int, file: BbFile): String {
-    val client = vm.currentClient() ?: throw IllegalStateException("No server configured")
-    val conn = client.openFileDownload(printerId, file.path)
-    try {
-        val code = conn.responseCode
-        if (code !in 200..299) throw BambuddyException(code, "HTTP $code")
-        conn.inputStream.use { input ->
+    val src = vm.files(printerId) ?: throw IllegalStateException("No connection to this printer")
+    val (stream, _) = src.open(file.path)
+    run {
+        stream.use { input ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
                 val values = ContentValues().apply {
@@ -805,8 +795,6 @@ private fun downloadToPhone(context: Context, vm: BambuddyViewModel, printerId: 
                 FileOutputStream(File(dir, file.name)).use { input.copyTo(it, 64 * 1024) }
             }
         }
-    } finally {
-        conn.disconnect()
     }
     return "Downloads/BamMate/${file.name}"
 }

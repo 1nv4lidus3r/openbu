@@ -241,6 +241,7 @@ fun toStatus(
         stage = stage,
         model = model,
         serial = serial,
+        jobFile = p.optString("gcode_file", "").ifBlank { null },
         activeNozzle = activeNozzle?.takeIf { nozzle2 != null && it in 0..1 },
         activeTray = activeTray(p, if (nozzle2 != null) activeNozzle else null),
         raw = state.toString(2),

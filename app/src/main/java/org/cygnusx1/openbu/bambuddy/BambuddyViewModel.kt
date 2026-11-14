@@ -213,6 +213,31 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private val _jogEnabled = MutableStateFlow(prefs?.getBoolean(KEY_JOG, false) ?: false)
+    /** Manual moves (jog pad): off until the user turns them on and accepts the risk notice. */
+    val jogEnabled: StateFlow<Boolean> = _jogEnabled.asStateFlow()
+
+    /**
+     * Turns manual moves on (after the user accepted the notice) or off. Acceptance is recorded with
+     * the time and app version, so it's clear when and in which version the user agreed.
+     */
+    fun setJogEnabled(on: Boolean) {
+        _jogEnabled.value = on
+        val edit = prefs?.edit()?.putBoolean(KEY_JOG, on)
+        if (on) {
+            val app = getApplication<android.app.Application>()
+            val version = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull() ?: "?"
+            edit?.putString(KEY_JOG_ACCEPTED_AT, java.time.Instant.now().toString())
+                ?.putString(KEY_JOG_ACCEPTED_VERSION, version)
+        }
+        edit?.apply()
+    }
+
+    private val finishedSeen = HashSet<String>()
+
+    /** True only the first time this finished job is seen while the app runs (for the check animation). */
+    fun firstTimeFinished(printerId: Int, job: String): Boolean = synchronized(finishedSeen) { finishedSeen.add("$printerId|$job") }
+
     private val _spools = MutableStateFlow<Map<Int, Map<String, HsSpool>>>(emptyMap())
     /** Per printer id: HaspelSync slot label ("A1", "HT-A", "External") to the assigned Spoolman spool. */
     val spools: StateFlow<Map<Int, Map<String, HsSpool>>> = _spools.asStateFlow()
@@ -323,6 +348,12 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** Run a read-only call off the main thread and return its result (errors are thrown to the caller). */
+    /** Like [query], but through whichever connection is in use (Bambuddy or direct). */
+    suspend fun <T> ask(block: PrinterBackend.() -> T): T {
+        val b = backend() ?: throw IllegalStateException("Not connected")
+        return withContext(Dispatchers.IO) { b.block() }
+    }
+
     suspend fun <T> query(block: BambuddyClient.() -> T): T {
         val c = client ?: throw IllegalStateException("No server configured")
         return withContext(Dispatchers.IO) { c.block() }
@@ -330,6 +361,34 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
 
     /** The current client, for long-running streams such as the camera. Null until a server is saved. */
     fun currentClient(): BambuddyClient? = client
+
+    private val jobPictures = HashMap<String, android.graphics.Bitmap?>()
+
+    /**
+     * Direct mode: the running print's plate picture, read from its file on the printer. Looked up
+     * once per job (also when nothing was found), so the printer isn't asked again every poll.
+     */
+    fun directJobPicture(printerId: Int, job: String, jobFile: String?): android.graphics.Bitmap? {
+        val key = "$printerId|$job|$jobFile"
+        synchronized(jobPictures) { if (jobPictures.containsKey(key)) return jobPictures[key] }
+        // A connection error isn't remembered, so the next look (next time the card shows) tries again.
+        val pic = try {
+            (files(printerId) as? DirectFileSource)?.jobPicture(job, jobFile)
+        } catch (e: Exception) {
+            Log.w(TAG, "plate picture lookup failed", e)
+            return null
+        }
+        synchronized(jobPictures) { jobPictures[key] = pic }
+        return pic
+    }
+
+    /** The printer's storage through whichever connection is in use, or null if unavailable. */
+    fun files(printerId: Int): PrinterFiles? =
+        if (_fallbackMode.value) {
+            DirectBackend.savedPrinters(getApplication()).firstOrNull { it.id == printerId }?.let { DirectFileSource(it) }
+        } else {
+            client?.let { BambuddyFileSource(it, printerId) }
+        }
 
     /**
      * Run a printer control (temperatures, fans, pause, ...) through whichever connection is in
@@ -377,6 +436,9 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         private const val KEY_API = "bb_api_key"
         private const val KEY_FALLBACK = "bb_fallback_mode"
         private const val KEY_HS_URL = "hs_base_url"
+        private const val KEY_JOG = "jog_enabled"
+        private const val KEY_JOG_ACCEPTED_AT = "jog_accepted_at"
+        private const val KEY_JOG_ACCEPTED_VERSION = "jog_accepted_version"
         private const val KEY_HS_KEY = "hs_api_key"
         private const val SPOOLS_EVERY = 10 // polls (about 30 seconds)
         private const val POLL_MS = 3_000L

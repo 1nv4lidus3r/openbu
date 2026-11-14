@@ -27,4 +27,10 @@ interface PrinterBackend {
     fun clearPlate(id: Int)
     fun printObjects(id: Int, reload: Boolean = true): BbObjects
     fun skipObjects(id: Int, objectIds: List<Int>)
+
+    // Manual moves (mm, relative). The printer does not check travel limits for these.
+    fun jogXY(id: Int, x: Int, y: Int)
+    fun jogZ(id: Int, distance: Int)
+    fun jogExtruder(id: Int, distance: Int)
+    fun homeAll(id: Int)
 }

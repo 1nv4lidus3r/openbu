@@ -103,6 +103,8 @@ data class BbStatus(
     val serial: String = "",
     /** Dual-nozzle printers: the nozzle in use, 0 = right, 1 = left (see [BbTemps]). Null when unknown. */
     val activeNozzle: Int? = null,
+    /** The printer's own name for the running file ("/data/Metadata/plate_2.gcode"), direct mode only. */
+    val jobFile: String? = null,
     /** The tray feeding the printer right now, when known. */
     val activeTray: TrayRef? = null,
     // Unmodified server response, shown in the app's "Raw data" dialog for troubleshooting.
@@ -275,7 +277,18 @@ fun parseStatus(body: String): BbStatus {
     )
 }
 
-data class BbObject(val id: Int, val name: String, val skipped: Boolean)
+/**
+ * An object on the plate. [x]/[y] is its centre in mm (from Bambuddy); [bbox] its outline
+ * (minX, minY, maxX, maxY in mm) when known (direct mode reads it from the print file).
+ */
+data class BbObject(
+    val id: Int,
+    val name: String,
+    val skipped: Boolean,
+    val x: Double? = null,
+    val y: Double? = null,
+    val bbox: List<Double>? = null,
+)
 
 data class BbObjects(val objects: List<BbObject>, val raw: String)
 
@@ -310,6 +323,8 @@ fun parseObjects(body: String): BbObjects {
             id = id,
             name = o.stringOrNull("name") ?: "Object $id",
             skipped = o.optBoolean("skipped", false) || id in skippedIds,
+            x = o.optDouble("x").takeIf { !it.isNaN() },
+            y = o.optDouble("y").takeIf { !it.isNaN() },
         )
     }
     return BbObjects(list, body)

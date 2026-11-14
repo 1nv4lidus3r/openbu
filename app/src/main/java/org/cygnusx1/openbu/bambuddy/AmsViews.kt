@@ -39,7 +39,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -282,11 +284,13 @@ private fun SlotText(
                 Text(t.type, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
             }
             spool != null -> {
+                // Up to two lines, so names like "Savannah Yellow" fit without being cut off.
                 Text(
                     spool.shortName,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(lineHeight = 14.sp),
                     fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (spool.vendor.isNotBlank()) {

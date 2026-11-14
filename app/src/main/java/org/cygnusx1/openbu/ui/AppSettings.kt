@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Notifications
@@ -35,6 +36,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,7 +53,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.clickable
 import org.cygnusx1.openbu.R
+import org.cygnusx1.openbu.bambuddy.MotionPref
 import org.cygnusx1.openbu.notify.NotifyPrefs
 import org.cygnusx1.openbu.notify.PrinterMonitorService
 
@@ -92,6 +97,10 @@ fun AppSettingsScreen(
     onOpenDirectPrinters: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenHaspelSync: () -> Unit,
+    motion: String,
+    onSetMotion: (String) -> Unit,
+    jogEnabled: Boolean,
+    onSetJog: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -99,6 +108,8 @@ fun AppSettingsScreen(
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
     }
     var showAbout by remember { mutableStateOf(false) }
+    var showMotion by remember { mutableStateOf(false) }
+    var showJogNotice by remember { mutableStateOf(false) }
 
     SettingsPage(title = stringResource(R.string.settings), onBack = onBack) {
         SettingsGroup(title = "Printers") {
@@ -132,6 +143,23 @@ fun AppSettingsScreen(
                 onClick = onOpenHaspelSync,
             )
         }
+        SettingsGroup(title = "Printer control") {
+            SwitchRow(
+                title = "Manual moves",
+                description = "Jog pad to move the print head, bed and extruder. Off by default; " +
+                    "the printer does not check travel limits for these moves.",
+                checked = jogEnabled,
+                onCheckedChange = { on -> if (on) showJogNotice = true else onSetJog(false) },
+            )
+        }
+        SettingsGroup(title = "Appearance") {
+            SettingsNavRow(
+                icon = Icons.Filled.Animation,
+                title = "Motion",
+                subtitle = motionOptions.firstOrNull { it.first == motion }?.second ?: motionOptions.first().second,
+                onClick = { showMotion = true },
+            )
+        }
         SettingsGroup(title = "App") {
             SettingsNavRow(
                 icon = Icons.Filled.Notifications,
@@ -150,6 +178,85 @@ fun AppSettingsScreen(
         }
     }
 
+    if (showJogNotice) {
+        var accepted by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showJogNotice = false },
+            title = { Text("Turn on manual moves?") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("Before you turn this on, please read:", style = MaterialTheme.typography.bodyMedium)
+                    listOf(
+                        "Bambu printers do not enforce their travel limits for moves sent from an app. A move can drive the print head or bed into the frame.",
+                        "A collision can damage the printer, the build plate or the print head.",
+                        "Moves are sent exactly as you tap them. Always home first, check that nothing is in the way, and use small steps.",
+                        "BamMate is provided as is, without warranty of any kind. You are responsible for every move you make with it.",
+                    ).forEach {
+                        Row {
+                            Text("•  ", style = MaterialTheme.typography.bodySmall)
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { accepted = !accepted }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = accepted, onCheckedChange = { accepted = it })
+                        Spacer(Modifier.width(8.dp))
+                        Text("I understand and accept the risk", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = accepted,
+                    onClick = {
+                        onSetJog(true)
+                        showJogNotice = false
+                    },
+                ) { Text("Turn on") }
+            },
+            dismissButton = { TextButton(onClick = { showJogNotice = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (showMotion) {
+        AlertDialog(
+            onDismissRequest = { showMotion = false },
+            title = { Text("Motion") },
+            text = {
+                Column {
+                    motionOptions.forEach { (value, title, desc) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSetMotion(value)
+                                    showMotion = false
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = value == motion, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(title, style = MaterialTheme.typography.bodyLarge)
+                                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showMotion = false }) { Text(stringResource(R.string.ok)) } },
+        )
+    }
+
     if (showAbout) {
         AlertDialog(
             onDismissRequest = { showAbout = false },
@@ -159,6 +266,8 @@ fun AppSettingsScreen(
                     Text(stringResource(R.string.version, versionName))
                     Spacer(Modifier.height(12.dp))
                     Text(stringResource(R.string.about_credits), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+                    Text(stringResource(R.string.about_disclaimer), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(12.dp))
                     Text(
                         stringResource(R.string.about_license),
@@ -171,6 +280,14 @@ fun AppSettingsScreen(
         )
     }
 }
+
+/** The Motion choices: saved value, title, what it does. */
+private val motionOptions = listOf(
+    Triple(MotionPref.SYSTEM, "Follow phone", "Full, or Off when the phone's animations are removed"),
+    Triple(MotionPref.FULL, "Full", "Spinning fans, rolling numbers, glows and breathing alerts"),
+    Triple(MotionPref.SUBTLE, "Subtle", "Fans and numbers move; no glows pulsing for attention"),
+    Triple(MotionPref.OFF, "Off", "Nothing moves; colors and arrows still show everything"),
+)
 
 /** Which alerts to show. Stored in the settings file the alert service reads. */
 @Composable

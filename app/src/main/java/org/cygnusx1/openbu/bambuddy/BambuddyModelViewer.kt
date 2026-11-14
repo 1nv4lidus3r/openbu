@@ -349,16 +349,10 @@ fun Model3DScreen(printerId: Int, file: BbFile, vm: BambuddyViewModel, onBack: (
     LaunchedEffect(file.path) {
         try {
             val data = withContext(Dispatchers.IO) {
-                val client = vm.currentClient() ?: throw IllegalStateException("No server configured")
+                val src = vm.files(printerId) ?: throw IllegalStateException("No connection to this printer")
                 val tmp = File(context.cacheDir, "bammate_view.3mf")
-                val conn = client.openFileDownload(printerId, file.path)
-                try {
-                    val code = conn.responseCode
-                    if (code !in 200..299) throw BambuddyException(code, "Download failed (HTTP $code)")
-                    conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 64 * 1024) } }
-                } finally {
-                    conn.disconnect()
-                }
+                val (stream, _) = src.open(file.path)
+                stream.use { input -> tmp.outputStream().use { input.copyTo(it, 64 * 1024) } }
                 withContext(Dispatchers.Main) { status = "Reading the model..." }
                 val d = Model3mf.load(tmp)
                 tmp.delete()

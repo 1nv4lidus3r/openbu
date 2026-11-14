@@ -6,7 +6,9 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -16,6 +18,9 @@ import org.cygnusx1.openbu.bambuddy.BambuddyHome
 import org.cygnusx1.openbu.bambuddy.BambuddySettingsScreen
 import org.cygnusx1.openbu.bambuddy.BambuddyViewModel
 import org.cygnusx1.openbu.bambuddy.HaspelSyncSettingsScreen
+import org.cygnusx1.openbu.bambuddy.LocalMotion
+import org.cygnusx1.openbu.bambuddy.MotionPref
+import org.cygnusx1.openbu.notify.NotifyPrefs
 import org.cygnusx1.openbu.direct.DirectPrintersScreen
 import org.cygnusx1.openbu.notify.PrinterMonitorService
 import org.cygnusx1.openbu.ui.AppSettingsScreen
@@ -50,6 +55,8 @@ class MainActivity : ComponentActivity() {
             var page by rememberSaveable { mutableStateOf(Page.HOME) }
             // Where Back goes from a page opened inside Settings.
             var cameFromSettings by rememberSaveable { mutableStateOf(false) }
+            val prefs = remember { NotifyPrefs.open(this) }
+            var motionPref by remember { mutableStateOf(prefs?.getString(MotionPref.KEY, MotionPref.SYSTEM) ?: MotionPref.SYSTEM) }
 
             fun open(p: Page, fromSettings: Boolean) {
                 cameFromSettings = fromSettings
@@ -65,6 +72,7 @@ class MainActivity : ComponentActivity() {
                 if (page != Page.SETTINGS) cameFromSettings = false
             }
 
+            CompositionLocalProvider(LocalMotion provides MotionPref.resolve(this, motionPref)) {
             BamMateTheme {
                 if (page != Page.HOME) BackHandler { back() }
                 when (page) {
@@ -81,6 +89,13 @@ class MainActivity : ComponentActivity() {
                         onOpenDirectPrinters = { open(Page.DIRECT_PRINTERS, true) },
                         onOpenNotifications = { open(Page.NOTIFICATIONS, true) },
                         onOpenHaspelSync = { open(Page.HASPELSYNC, true) },
+                        jogEnabled = vm.jogEnabled.collectAsState().value,
+                        onSetJog = { vm.setJogEnabled(it) },
+                        motion = motionPref,
+                        onSetMotion = {
+                            motionPref = it
+                            prefs?.edit()?.putString(MotionPref.KEY, it)?.apply()
+                        },
                         onBack = { back() },
                     )
                     Page.SERVER -> BambuddySettingsScreen(onBack = { back() }, vm = vm)
@@ -91,6 +106,7 @@ class MainActivity : ComponentActivity() {
                     Page.NOTIFICATIONS -> NotificationSettingsScreen(onBack = { back() })
                     Page.HASPELSYNC -> HaspelSyncSettingsScreen(vm = vm, onBack = { back() })
                 }
+            }
             }
         }
     }

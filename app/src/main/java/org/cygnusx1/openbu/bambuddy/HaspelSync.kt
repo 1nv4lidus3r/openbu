@@ -34,6 +34,8 @@ data class HsSpool(
      */
     val shortName: String
         get() {
+            // "PolyTerra™ PLA Matte (Savannah Yellow)": the colour in brackets is what tells spools apart.
+            Regex("\\(([^)]+)\\)").find(name)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
             val hadMark = name.contains('™') || name.contains('®')
             var n = name.replace("™", "").replace("®", "")
             if (material.isNotBlank()) n = n.replace(Regex("\\b${Regex.escape(material)}\\b", RegexOption.IGNORE_CASE), "")
