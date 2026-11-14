@@ -211,7 +211,7 @@ object DirectBackend : PrinterBackend {
 
     // ------------------------------------------------------------------ PrinterBackend
 
-    override fun listPrinters(): List<BbPrinter> = printers.map { BbPrinter(it.id, it.displayName, it.model) }
+    override fun listPrinters(): List<BbPrinter> = printers.map { BbPrinter(it.id, it.displayName, it.model, it.serial) }
 
     override fun status(printerId: Int): BbStatus {
         val l = synchronized(lock) { links[printerId] }

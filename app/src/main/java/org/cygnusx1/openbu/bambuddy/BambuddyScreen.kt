@@ -1,5 +1,7 @@
 package org.cygnusx1.openbu.bambuddy
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.FilterChip
@@ -388,11 +390,25 @@ private fun PrinterCard(
     var cameraOn by remember { mutableStateOf(false) }
     LaunchedEffect(expanded) { if (!expanded) cameraOn = false }
     val active = s.state == "RUNNING" || s.state == "PAUSE"
+    val progress = ((s.progress ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f)
+
+    // Glow around the card: steady while printing or done, slowly breathing when it needs you.
+    val needsYou = s.connected && (s.state == "PAUSE" || s.hms.isNotEmpty() || (s.state == "FAILED" && s.awaitingPlateClear))
+    val glow: Color? = when {
+        !s.connected -> null
+        needsYou -> stateColor(s)
+        s.state in setOf("RUNNING", "PREPARE") -> MaterialTheme.colorScheme.primary
+        s.state == "FINISH" && s.awaitingPlateClear -> StatusGreen
+        else -> null
+    }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .stateGlow(glow, breathing = needsYou),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = glow?.let { BorderStroke(1.dp, it.copy(alpha = 0.45f)) },
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
@@ -421,8 +437,11 @@ private fun PrinterCard(
                             when {
                                 !s.connected && power?.isOn == false -> "Powered off"
                                 !s.connected -> "Offline"
-                                active && s.remainingMin != null ->
-                                    "${activeLabel(s)}  -  ${formatMinutes(s.remainingMin)} left"
+                                active && s.remainingMin != null -> buildString {
+                                    append("${activeLabel(s)}  -  ${formatMinutes(rolled(s.remainingMin.toDouble())!!.roundToInt())} left")
+                                    // The finish time is shown in the job details when the card is open.
+                                    if (!expanded && s.remainingMin > 0) append("  -  done ${finishTime(s.remainingMin)}")
+                                }
                                 active -> activeLabel(s)
                                 else -> restingLabel(s)
                             },
@@ -434,7 +453,7 @@ private fun PrinterCard(
                 }
                 if (active && !expanded) {
                     Text(
-                        "${(s.progress ?: 0.0).roundToInt()}%",
+                        "${(rolled(s.progress) ?: 0.0).roundToInt()}%",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = stateColor(s),
@@ -464,8 +483,9 @@ private fun PrinterCard(
                     )
                 }
             }
-            if (active) {
-                val p = ((s.progress ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f)
+            // Closed card: a bar under the header. Open card: the ring around the plate picture instead.
+            if (active && !expanded) {
+                val p by androidx.compose.animation.core.animateFloatAsState(progress, tween(900), label = "bar")
                 LinearProgressIndicator(
                     progress = { p },
                     modifier = Modifier
@@ -512,9 +532,24 @@ private fun PrinterCard(
             // Job details: plate picture, stage, name, progress and finish time
             if (s.job.isNotBlank() || active) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (s.hasCover && active) {
-                        PrintCover(printerId = s.id, jobKey = s.job, vm = vm)
-                        Spacer(Modifier.size(12.dp))
+                    if (active) {
+                        ProgressRing(progress, stateColor(s)) {
+                            var hasPicture by remember(s.job) { mutableStateOf(false) }
+                            if (s.hasCover) {
+                                PrintCover(
+                                    printerId = s.id, jobKey = s.job, vm = vm,
+                                    size = 62.dp, onLoaded = { hasPicture = true },
+                                )
+                            }
+                            if (!hasPicture) {
+                                Text(
+                                    "${(rolled(s.progress) ?: 0.0).roundToInt()}%",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.size(14.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         if (active && !s.stage.isNullOrBlank()) {
@@ -529,10 +564,9 @@ private fun PrinterCard(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         if (active) {
-                            val p = ((s.progress ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f)
                             Text(
                                 buildString {
-                                    append("${(p * 100).roundToInt()}%")
+                                    append("${(rolled(s.progress) ?: 0.0).roundToInt()}%")
                                     if (s.layer != null && s.totalLayers != null && s.totalLayers > 0) {
                                         append("  -  layer ${s.layer}/${s.totalLayers}")
                                     }
@@ -706,9 +740,13 @@ private fun PrinterCard(
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                             Text("External", style = MaterialTheme.typography.labelLarge)
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                s.external.forEach { TrayView(it, Modifier.weight(1f), showRemain = false) }
-                            }
+                            val allSpools by vm.spools.collectAsState()
+                            Spacer(Modifier.height(8.dp))
+                            ExternalSpools(
+                                s.external,
+                                activeIndex = if (s.activeTray?.amsId == 254) s.activeTray.slot else null,
+                                linked = allSpools[s.id].orEmpty(),
+                            )
                         }
                     }
                 }
@@ -802,6 +840,14 @@ private fun PrinterCard(
                 }
             },
             confirmButton = { TextButton(onClick = { dialog = null }) { Text("Close") } },
+            dismissButton = {
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(prettyJson(s.raw)))
+                    android.widget.Toast.makeText(ctx, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("Copy all") }
+            },
         )
         null -> {}
     }
@@ -1111,17 +1157,19 @@ private fun AmsView(u: BbAms, s: BbStatus, vm: BambuddyViewModel) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.fillMaxWidth(),
+        // While drying, a warm glow breathes around the unit.
+        border = if (u.drying) BorderStroke(1.dp, DryingOrange.copy(alpha = 0.6f)) else null,
+        modifier = Modifier
+            .fillMaxWidth()
+            .stateGlow(if (u.drying) DryingOrange else null, breathing = true, corner = 16.dp),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(u.displayName(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                val info = listOfNotNull(
-                    u.humidity?.let { "$it% RH" },
-                    u.temp?.let { "${it.roundToInt()}°C" },
-                ).joinToString("  ")
-                if (info.isNotBlank()) {
-                    Text(info, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                u.humidity?.let { HumidityDrop(it) }
+                u.temp?.let {
+                    Spacer(Modifier.width(10.dp))
+                    Text("${it.roundToInt()}°C", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (u.canDry(s) && !u.drying) {
                     IconButton(onClick = { showDry = true }) {
@@ -1135,39 +1183,11 @@ private fun AmsView(u: BbAms, s: BbStatus, vm: BambuddyViewModel) {
             }
             if (u.drying) DryingStrip(s, u, vm)
             if (mine.isNotEmpty()) ScheduledDryRows(mine, vm)
-            Row(modifier = Modifier.fillMaxWidth()) {
-                u.trays.forEach { TrayView(it, Modifier.weight(1f)) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrayView(t: BbTray, modifier: Modifier = Modifier, showRemain: Boolean = true) {
-    val empty = !t.exists || t.type.isBlank()
-    Column(modifier = modifier.padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .background(if (empty) Color.Transparent else parseTrayColor(t.colorHex), CircleShape)
-                .border(
-                    width = if (empty) 1.dp else 2.dp,
-                    color = if (empty) MaterialTheme.colorScheme.outline else Color.White.copy(alpha = 0.12f),
-                    shape = CircleShape,
-                ),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (empty) "Empty" else t.type,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-        )
-        if (showRemain && !empty && t.remain in 0..100) {
-            Text(
-                "${t.remain}%",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.height(8.dp))
+            val activeSlot = s.activeTray?.takeIf { it.amsId == u.id }?.slot
+            val allSpools by vm.spools.collectAsState()
+            val linked = allSpools[s.id].orEmpty()
+            if (u.isHt) AmsHtBody(u, active = activeSlot != null, linked = linked) else AmsBody(u, activeSlot, linked)
         }
     }
 }
@@ -1269,7 +1289,13 @@ private fun finishTime(remainingMin: Int): String {
 
 /** Small plate picture for the running print, fetched once per job. */
 @Composable
-private fun PrintCover(printerId: Int, jobKey: String, vm: BambuddyViewModel) {
+private fun PrintCover(
+    printerId: Int,
+    jobKey: String,
+    vm: BambuddyViewModel,
+    size: androidx.compose.ui.unit.Dp = 72.dp,
+    onLoaded: () -> Unit = {},
+) {
     var img by remember(printerId, jobKey) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     LaunchedEffect(printerId, jobKey) {
         img = try {
@@ -1290,12 +1316,14 @@ private fun PrintCover(printerId: Int, jobKey: String, vm: BambuddyViewModel) {
         }
     }
     val i = img ?: return
+    LaunchedEffect(i) { onLoaded() }
     androidx.compose.foundation.Image(
         bitmap = i,
         contentDescription = "Plate preview",
         modifier = Modifier
-            .size(72.dp)
-            .background(Color.Black, RoundedCornerShape(8.dp)),
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black, CircleShape),
     )
 }
 
@@ -1324,7 +1352,7 @@ private fun stateLabel(state: String): String = when (state) {
 private fun formatMinutes(min: Int): String =
     if (min >= 60) "${min / 60}h ${min % 60}m" else "${min}m"
 
-private fun parseTrayColor(hex: String?): Color {
+internal fun parseTrayColor(hex: String?): Color {
     val h = hex?.trim()?.removePrefix("#") ?: return Color.Gray
     if (h.length < 6) return Color.Gray
     return try {

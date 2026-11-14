@@ -91,6 +91,16 @@ class PrinterNotifier(private val context: Context) {
         direct: Boolean = false,
     ) {
         // An offline printer has no meaningful state; keep the last known one until it is back.
+        // The idle-power timer is the exception: a printer that was switched off (or dropped
+        // offline) starts counting again from zero when it comes back, so switching it on doesn't
+        // immediately trigger "idle for over an hour" from before it was turned off.
+        if (!s.connected || s.state.isBlank() || plugOn == false) {
+            reminders["bb:${s.id}"]?.let {
+                it.idleSince = null
+                it.idleAlerted = false
+            }
+            cancel("bb:${s.id}", TYPE_IDLE)
+        }
         if (!s.connected || s.state.isBlank()) return
         val name = s.name.ifBlank { "Printer ${s.id}" }
         val job = s.job.substringAfterLast('/')

@@ -3,7 +3,7 @@ package org.cygnusx1.openbu.bambuddy
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class BbPrinter(val id: Int, val name: String, val model: String)
+data class BbPrinter(val id: Int, val name: String, val model: String, val serial: String = "")
 
 /**
  * Dual-nozzle printers (H2D), as checked on a real printer:
@@ -51,6 +51,20 @@ data class BbAms(
     val drying: Boolean get() = dryStatus != 0 || dryMinutesLeft > 0
 }
 
+/** A tray position: [amsId] is the AMS unit (128+ for an AMS HT, 254 for the external spool), [slot] 0-3. */
+data class TrayRef(val amsId: Int, val slot: Int)
+
+/**
+ * The printer's "tray_now" number: AMS unit * 4 + slot for a normal AMS, the unit id itself for an
+ * AMS HT (128+), 254 for the external spool, 255 for nothing loaded.
+ */
+fun trayRefFromTrayNow(n: Int?): TrayRef? = when {
+    n == null || n == 255 || n < 0 -> null
+    n == 254 -> TrayRef(254, 0)
+    n >= 128 -> TrayRef(n, 0)
+    else -> TrayRef(n / 4, n % 4)
+}
+
 data class BbHms(val code: String, val description: String?, val severity: Int)
 
 data class BbStatus(
@@ -85,8 +99,12 @@ data class BbStatus(
     val note: String? = null,
     /** Printer model ("X1C", "H2D", ...), used for per-model temperature limits. */
     val model: String = "",
+    /** Serial number, when known (used to find the printer in HaspelSync). */
+    val serial: String = "",
     /** Dual-nozzle printers: the nozzle in use, 0 = right, 1 = left (see [BbTemps]). Null when unknown. */
     val activeNozzle: Int? = null,
+    /** The tray feeding the printer right now, when known. */
+    val activeTray: TrayRef? = null,
     // Unmodified server response, shown in the app's "Raw data" dialog for troubleshooting.
     val raw: String,
 )
@@ -183,6 +201,7 @@ fun parsePrinterList(body: String): List<BbPrinter> {
             id = p.optInt("id"),
             name = p.optString("name", "Printer ${p.optInt("id")}"),
             model = p.optString("model", ""),
+            serial = p.optString("serial_number", "").ifBlank { p.optString("serial", "") },
         )
     }.sortedBy { it.id }
 }
@@ -249,6 +268,9 @@ fun parseStatus(body: String): BbStatus {
         supportsDrying = o.optBoolean("supports_drying", false),
         supportsDryingWhilePrinting = o.optBoolean("supports_drying_while_printing", false),
         activeNozzle = o.intOrNull("active_extruder") ?: o.intOrNull("active_nozzle"),
+        activeTray = trayRefFromTrayNow(
+            o.intOrNull("tray_now") ?: o.optJSONObject("ams_status")?.intOrNull("tray_now"),
+        ),
         raw = body,
     )
 }

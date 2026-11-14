@@ -15,6 +15,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.cygnusx1.openbu.bambuddy.BambuddyHome
 import org.cygnusx1.openbu.bambuddy.BambuddySettingsScreen
 import org.cygnusx1.openbu.bambuddy.BambuddyViewModel
+import org.cygnusx1.openbu.bambuddy.HaspelSyncSettingsScreen
 import org.cygnusx1.openbu.direct.DirectPrintersScreen
 import org.cygnusx1.openbu.notify.PrinterMonitorService
 import org.cygnusx1.openbu.ui.AppSettingsScreen
@@ -27,7 +28,7 @@ import org.cygnusx1.openbu.ui.theme.BamMateTheme
  */
 class MainActivity : ComponentActivity() {
 
-    private enum class Page { HOME, SETTINGS, SERVER, DIRECT_PRINTERS, NOTIFICATIONS }
+    private enum class Page { HOME, SETTINGS, SERVER, DIRECT_PRINTERS, NOTIFICATIONS, HASPELSYNC }
 
     override fun onStart() {
         super.onStart()
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
                         onOpenServer = { open(Page.SERVER, true) },
                         onOpenDirectPrinters = { open(Page.DIRECT_PRINTERS, true) },
                         onOpenNotifications = { open(Page.NOTIFICATIONS, true) },
+                        onOpenHaspelSync = { open(Page.HASPELSYNC, true) },
                         onBack = { back() },
                     )
                     Page.SERVER -> BambuddySettingsScreen(onBack = { back() }, vm = vm)
@@ -87,6 +89,7 @@ class MainActivity : ComponentActivity() {
                         onChanged = { vm.directPrintersChanged() },
                     )
                     Page.NOTIFICATIONS -> NotificationSettingsScreen(onBack = { back() })
+                    Page.HASPELSYNC -> HaspelSyncSettingsScreen(vm = vm, onBack = { back() })
                 }
             }
         }

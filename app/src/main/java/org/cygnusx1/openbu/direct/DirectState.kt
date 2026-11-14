@@ -5,6 +5,8 @@ import org.cygnusx1.openbu.bambuddy.BbHms
 import org.cygnusx1.openbu.bambuddy.BbStatus
 import org.cygnusx1.openbu.bambuddy.BbTemps
 import org.cygnusx1.openbu.bambuddy.BbTray
+import org.cygnusx1.openbu.bambuddy.TrayRef
+import org.cygnusx1.openbu.bambuddy.trayRefFromTrayNow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -238,9 +240,37 @@ fun toStatus(
         awaitingPlateClear = false,
         stage = stage,
         model = model,
+        serial = serial,
         activeNozzle = activeNozzle?.takeIf { nozzle2 != null && it in 0..1 },
+        activeTray = activeTray(p, if (nozzle2 != null) activeNozzle else null),
         raw = state.toString(2),
     )
+}
+
+/**
+ * The tray feeding the printer. Single-nozzle printers report it as ams.tray_now. Dual-nozzle
+ * printers also report, per extruder, the tray it is fed from ("snow": unit shl 8 or slot), so
+ * the active extruder's entry is used there when present.
+ */
+private fun activeTray(p: JSONObject, activeNozzle: Int?): TrayRef? {
+    if (activeNozzle != null) {
+        val info = p.optJSONObject("device")?.optJSONObject("extruder")?.optJSONArray("info")
+        if (info != null) {
+            for (i in 0 until info.length()) {
+                val e = info.optJSONObject(i) ?: continue
+                if ((e.int("id") ?: i) != activeNozzle) continue
+                val snow = e.int("snow") ?: break
+                val unit = (snow shr 8) and 0xFF
+                val slot = snow and 0xFF
+                return when {
+                    unit == 0xFF -> null
+                    unit == 0xFE -> TrayRef(254, 0)
+                    else -> TrayRef(unit, if (unit >= 128) 0 else slot)
+                }
+            }
+        }
+    }
+    return trayRefFromTrayNow(p.optJSONObject("ams")?.int("tray_now"))
 }
 
 /** JSON commands understood by Bambu printers on the request topic. */

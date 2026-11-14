@@ -164,7 +164,12 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
                     printers.map { p ->
                         async(Dispatchers.IO) {
                             try {
-                                b.status(p.id).let { st -> if (st.model.isBlank()) st.copy(model = p.model) else st }
+                                b.status(p.id).let { st ->
+                                    st.copy(
+                                        model = st.model.ifBlank { p.model },
+                                        serial = st.serial.ifBlank { p.serial },
+                                    )
+                                }
                             } catch (e: Exception) {
                                 Log.w(TAG, "status failed for printer ${p.id}", e)
                                 null
@@ -175,6 +180,8 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
             }
             _statuses.value = list
             _error.value = null
+            // Spool assignments from HaspelSync (works with either connection), every ~30 seconds.
+            if (pollCount % SPOOLS_EVERY == 0) refreshSpools(list)
             // Smart plugs, drying schedules and maintenance only exist on the Bambuddy server.
             val c = b as? BambuddyClient
             if (c == null) {
@@ -203,6 +210,58 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
             _error.value = describe(e)
         } finally {
             _loaded.value = true
+        }
+    }
+
+    private val _spools = MutableStateFlow<Map<Int, Map<String, HsSpool>>>(emptyMap())
+    /** Per printer id: HaspelSync slot label ("A1", "HT-A", "External") to the assigned Spoolman spool. */
+    val spools: StateFlow<Map<Int, Map<String, HsSpool>>> = _spools.asStateFlow()
+
+    fun haspelSyncConfig(): Pair<String, String> =
+        (prefs?.getString(KEY_HS_URL, "") ?: "") to (prefs?.getString(KEY_HS_KEY, "") ?: "")
+
+    fun saveHaspelSync(url: String, key: String) {
+        prefs?.edit()?.putString(KEY_HS_URL, url.trim())?.putString(KEY_HS_KEY, key.trim())?.apply()
+        if (url.isBlank()) _spools.value = emptyMap()
+        viewModelScope.launch { refreshSpools(_statuses.value) }
+    }
+
+    /** Asks HaspelSync for its printers, to check the address and key. */
+    suspend fun testHaspelSync(url: String, key: String): List<HsPrinter> =
+        withContext(Dispatchers.IO) { HaspelSyncClient(url, key).printers() }
+
+    private suspend fun refreshSpools(printers: List<BbStatus>) {
+        val (url, key) = haspelSyncConfig()
+        if (url.isBlank() || key.isBlank() || printers.isEmpty()) return
+        try {
+            val hs = HaspelSyncClient(url, key)
+            val result = withContext(Dispatchers.IO) {
+                val known = hs.printers()
+                val used = HashSet<String>()
+                // Serial number first; the name only when the serial isn't known.
+                val pairs = printers.mapNotNull { st ->
+                    val bySerial = known.firstOrNull { st.serial.isNotBlank() && it.id.equals(st.serial, ignoreCase = true) }
+                    val match = bySerial
+                        ?: known.firstOrNull { it.id !in used && it.name.equals(st.name, ignoreCase = true) }
+                        ?: known.filter { it.id !in used && HaspelSyncClient.namesMatch(it.name, st.name) }.singleOrNull()
+                    match?.let { used += it.id; st.id to it.id }
+                }
+                coroutineScope {
+                    pairs.map { (printerId, hsId) ->
+                        async(Dispatchers.IO) {
+                            try {
+                                printerId to hs.spools(hsId)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "HaspelSync spools failed for $hsId", e)
+                                null
+                            }
+                        }
+                    }.awaitAll().filterNotNull().toMap()
+                }
+            }
+            _spools.value = result
+        } catch (e: Exception) {
+            Log.w(TAG, "HaspelSync refresh failed", e)
         }
     }
 
@@ -317,6 +376,9 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         private const val KEY_URL = "bb_base_url"
         private const val KEY_API = "bb_api_key"
         private const val KEY_FALLBACK = "bb_fallback_mode"
+        private const val KEY_HS_URL = "hs_base_url"
+        private const val KEY_HS_KEY = "hs_api_key"
+        private const val SPOOLS_EVERY = 10 // polls (about 30 seconds)
         private const val POLL_MS = 3_000L
         private const val POWER_EVERY = 3 // ~9 s
         private const val PLUG_LOOKUP_EVERY = 30 // ~90 s

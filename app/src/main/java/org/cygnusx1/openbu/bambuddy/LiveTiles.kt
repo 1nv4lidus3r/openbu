@@ -2,6 +2,7 @@ package org.cygnusx1.openbu.bambuddy
 
 import android.provider.Settings
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -31,6 +32,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -151,7 +153,7 @@ fun HeatTile(
             }
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(tempLabel(current, target), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(tempLabel(rolled(current), target), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 val arrow = when (trend) {
                     HeatTrend.HEATING -> Icons.Filled.ArrowUpward
                     HeatTrend.COOLING -> Icons.Filled.ArrowDownward
@@ -190,12 +192,7 @@ private fun fanTurnsPerSecond(percent: Int?): Float {
  */
 @Composable
 fun FanTile(label: String, percent: Int?, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val animationsOff = remember {
-        runCatching {
-            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-        }.getOrDefault(false)
-    }
+    val animationsOff = !animationsEnabled()
     val speed by animateFloatAsState(
         if (animationsOff) 0f else fanTurnsPerSecond(percent),
         tween(900),
@@ -240,7 +237,113 @@ fun FanTile(label: String, percent: Int?, modifier: Modifier = Modifier, onClick
                 Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(2.dp))
-            Text(percent?.let { "$it%" } ?: "-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(rolled(percent?.toDouble())?.let { "${it.roundToInt()}%" } ?: "-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+// ------------------------------------------------------------------ shared motion helpers
+
+/** False when the phone's "Remove animations" setting is on: then nothing moves. */
+@Composable
+fun animationsEnabled(): Boolean {
+    val context = LocalContext.current
+    return remember {
+        runCatching {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
+        }.getOrDefault(true)
+    }
+}
+
+/**
+ * A number that rolls smoothly to each new value instead of jumping. The first value shows as is
+ * (no count-up from zero); null stays null.
+ */
+@Composable
+fun rolled(value: Double?, durationMs: Int = 800): Double? {
+    if (value == null) return null
+    val animate = animationsEnabled()
+    // Created with the first real value, so it never counts up from zero.
+    val anim = remember { androidx.compose.animation.core.Animatable(value.toFloat()) }
+    LaunchedEffect(value) {
+        if (animate) anim.animateTo(value.toFloat(), tween(durationMs)) else anim.snapTo(value.toFloat())
+    }
+    return anim.value.toDouble()
+}
+
+/** Circular progress around [content] (the plate picture, or the percent). */
+@Composable
+fun ProgressRing(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+    size: androidx.compose.ui.unit.Dp = 84.dp,
+    stroke: androidx.compose.ui.unit.Dp = 5.dp,
+    content: @Composable () -> Unit,
+) {
+    val animate = animationsEnabled()
+    val p by animateFloatAsState(
+        progress.coerceIn(0f, 1f),
+        if (animate) tween(900) else androidx.compose.animation.core.snap(),
+        label = "ring",
+    )
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .size(size)
+            .ringArc(p, color, track, stroke),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+private fun Modifier.ringArc(p: Float, color: Color, track: Color, stroke: androidx.compose.ui.unit.Dp): Modifier =
+    this.then(
+        Modifier.drawBehind {
+            val w = stroke.toPx()
+            val inset = w / 2
+            val arcSize = androidx.compose.ui.geometry.Size(size.width - w, size.height - w)
+            val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+            val style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawArc(track, 0f, 360f, false, topLeft, arcSize, style = style)
+            if (p > 0f) drawArc(color, -90f, 360f * p, false, topLeft, arcSize, style = style)
+        },
+    )
+
+/**
+ * Soft halo around a printer card in its state color. [breathing] slowly pulses it (paused,
+ * needs attention); otherwise it stays still. Null color: no glow.
+ */
+@Composable
+fun Modifier.stateGlow(color: Color?, breathing: Boolean, corner: androidx.compose.ui.unit.Dp = 20.dp): Modifier {
+    if (color == null) return this
+    val pulse = if (breathing && animationsEnabled()) {
+        val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "glow")
+        val a by t.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                tween(1600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                androidx.compose.animation.core.RepeatMode.Reverse,
+            ),
+            label = "glowAlpha",
+        )
+        a
+    } else {
+        0.7f
+    }
+    return this.drawBehind {
+        val ring = 1.2.dp.toPx()
+        val r = corner.toPx()
+        for (i in 1..7) {
+            val grow = i * 1.4.dp.toPx()
+            val fade = (1f - i / 8f)
+            drawRoundRect(
+                color = color.copy(alpha = 0.22f * fade * fade * pulse),
+                topLeft = androidx.compose.ui.geometry.Offset(-grow, -grow),
+                size = androidx.compose.ui.geometry.Size(size.width + 2 * grow, size.height + 2 * grow),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + grow, r + grow),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(ring * 1.6f),
+            )
         }
     }
 }

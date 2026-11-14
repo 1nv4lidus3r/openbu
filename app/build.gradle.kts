@@ -30,13 +30,13 @@ android {
         targetSdk = 35
         // BamMate numbering: 0.0.x until beta. versionCode must keep increasing for updates to
         // install (the last Openbu-based build was 3), so it continues from there.
-        versionCode = 6
+        versionCode = 9
         // Base version only. The "-dirty" marker for builds from a tree with uncommitted changes
         // is applied to the APK/AAB *filenames* at execution time (see DirtyAwareTask), so it
         // can't go stale under the configuration cache and stays out of the user-visible manifest
         // version. A "-dirty" build is instead visible in the artifact filename (no automated
         // release guard exists yet).
-        versionName = "0.0.3"
+        versionName = "0.0.6"
     }
 
     signingConfigs {

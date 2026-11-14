@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
@@ -90,6 +91,7 @@ fun AppSettingsScreen(
     onOpenServer: () -> Unit,
     onOpenDirectPrinters: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenHaspelSync: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -120,6 +122,14 @@ fun AppSettingsScreen(
                     "Camera, files, power, stats and maintenance need Bambuddy.",
                 checked = direct,
                 onCheckedChange = onSetDirect,
+            )
+        }
+        SettingsGroup(title = "Filament") {
+            SettingsNavRow(
+                icon = Icons.Filled.Inventory2,
+                title = "HaspelSync",
+                subtitle = "Spool names and grams from Spoolman",
+                onClick = onOpenHaspelSync,
             )
         }
         SettingsGroup(title = "App") {
