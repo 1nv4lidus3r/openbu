@@ -1,5 +1,6 @@
 package org.cygnusx1.openbu.bambuddy
 
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Slider
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -98,6 +100,7 @@ import kotlin.math.roundToInt
 fun BambuddyHome(
     onOpenSettings: () -> Unit,
     onUseDirectConnection: () -> Unit,
+    onOpenDirectPrinters: () -> Unit,
     vm: BambuddyViewModel = viewModel(),
 ) {
     val baseUrl by vm.baseUrl.collectAsState()
@@ -108,13 +111,15 @@ fun BambuddyHome(
     val maintDue = maintenance.sumOf { it.dueCount }
     val error by vm.error.collectAsState()
     val loaded by vm.loaded.collectAsState()
-    val configured = baseUrl.isNotBlank()
+    // Direct mode needs no server: the printers are reached over the local network.
+    val direct by vm.fallbackMode.collectAsState()
+    val configured = direct || baseUrl.isNotBlank()
     var expandedId by rememberSaveable { mutableStateOf<Int?>(null) }
     var filesFor by rememberSaveable { mutableStateOf<Int?>(null) }
     var page by rememberSaveable { mutableStateOf<String?>(null) } // "maintenance" or "stats"
 
     // Poll only while the app is on screen.
-    LifecycleResumeEffect(configured) {
+    LifecycleResumeEffect(configured, direct) {
         if (configured) vm.startPolling()
         onPauseOrDispose { vm.stopPolling() }
     }
@@ -143,17 +148,21 @@ fun BambuddyHome(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // Pinned to the bottom of the screen, above the system navigation bar.
+        bottomBar = { if (configured) DonateBanner() },
         topBar = {
             TopAppBar(
                 title = { Text("BamMate") },
                 actions = {
                     if (configured) {
-                        IconButton(onClick = { page = "stats" }) {
-                            Icon(Icons.Filled.BarChart, contentDescription = "Stats")
-                        }
-                        IconButton(onClick = { page = "maintenance" }) {
-                            BadgedBox(badge = { if (maintDue > 0) Badge { Text("$maintDue") } }) {
-                                Icon(Icons.Filled.Build, contentDescription = "Maintenance")
+                        if (!direct) {
+                            IconButton(onClick = { page = "stats" }) {
+                                Icon(Icons.Filled.BarChart, contentDescription = "Stats")
+                            }
+                            IconButton(onClick = { page = "maintenance" }) {
+                                BadgedBox(badge = { if (maintDue > 0) Badge { Text("$maintDue") } }) {
+                                    Icon(Icons.Filled.Build, contentDescription = "Maintenance")
+                                }
                             }
                         }
                         IconButton(onClick = onOpenSettings) {
@@ -202,13 +211,32 @@ fun BambuddyHome(
                         )
                     }
                 }
+                if (direct) DirectModeBar(onOpenDirectPrinters)
                 if (statuses.isEmpty() && error == null) {
-                    Text(
-                        text = if (loaded) "No printers found on this Bambuddy server." else "Connecting...",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (direct && loaded) {
+                        SettingsGroup(title = null) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text("No printers yet", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Add a printer with its IP address, serial number and access code, " +
+                                        "or let BamMate find the printers on your network.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Button(onClick = onOpenDirectPrinters) { Text("Add a printer") }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = if (loaded) "No printers found on this Bambuddy server." else "Connecting...",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                if (statuses.isNotEmpty()) HomeSummary(statuses, maintenance) { page = "maintenance" }
+                if (statuses.isNotEmpty()) HomeSummary(statuses, if (direct) emptyList() else maintenance) { page = "maintenance" }
                 val single = statuses.size == 1
                 statuses.forEach { s ->
                     PrinterCard(
@@ -218,27 +246,25 @@ fun BambuddyHome(
                         expanded = single || expandedId == s.id,
                         onToggle = { expandedId = if (expandedId == s.id) null else s.id },
                         onOpenFiles = { filesFor = s.id },
-                        power = power[s.id],
+                        power = if (direct) null else power[s.id],
+                        direct = direct,
                     )
                 }
-                DonateBanner()
             }
         }
     }
 }
 
-/** Server address, API key and the direct-connection fallback switch (opened from Settings). */
+/** Bambuddy server address and API key (opened from Settings). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BambuddySettingsScreen(
     onBack: () -> Unit,
-    onFallbackEnabled: () -> Unit,
     vm: BambuddyViewModel = viewModel(),
 ) {
     val baseUrl by vm.baseUrl.collectAsState()
     val apiKey by vm.apiKey.collectAsState()
     val error by vm.error.collectAsState()
-    val fallback by vm.fallbackMode.collectAsState()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -275,31 +301,6 @@ fun BambuddySettingsScreen(
                         onSave = { url, key ->
                             vm.saveConfig(url, key)
                             onBack()
-                        },
-                    )
-                }
-            }
-            SettingsGroup(title = "Fallback") {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp)) {
-                        Text("Use direct printer connection", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Skip the Bambuddy server and talk to the printers over your network, " +
-                                "like the original app. Use this if the server is down.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = fallback,
-                        onCheckedChange = {
-                            vm.setFallback(it)
-                            if (it) onFallbackEnabled()
                         },
                     )
                 }
@@ -379,6 +380,8 @@ private fun PrinterCard(
     onToggle: () -> Unit,
     onOpenFiles: () -> Unit,
     power: BbPower? = null,
+    /** Direct connection: no files, camera, skip objects or plate flag (Bambuddy features). */
+    direct: Boolean = false,
 ) {
     var dialog by remember { mutableStateOf<CardDialog?>(null) }
     // The camera is off until the camera icon is tapped, and goes off again when the card closes.
@@ -438,7 +441,7 @@ private fun PrinterCard(
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
-                if (expanded && s.connected) {
+                if (expanded && s.connected && !direct) {
                     IconButton(onClick = onOpenFiles) {
                         Icon(
                             imageVector = Icons.Filled.Folder,
@@ -494,10 +497,10 @@ private fun PrinterCard(
                 // Everything else would be stale data from before the printer went offline.
                 powerSection()
                 Text(
-                    text = if (power?.isOn == false) {
-                        "The printer is switched off. Details appear once it's back online."
-                    } else {
-                        "Bambuddy can't reach this printer. Details appear once it's back online."
+                    text = when {
+                        power?.isOn == false -> "The printer is switched off. Details appear once it's back online."
+                        direct -> (s.note ?: "Can't reach this printer.") + " Details appear once it's connected."
+                        else -> "Bambuddy can't reach this printer. Details appear once it's back online."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -559,7 +562,7 @@ private fun PrinterCard(
                             color = StatusAmber,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { vm.command { clearPlate(s.id) } }) { Text("Plate cleared") }
+                        TextButton(onClick = { vm.control { clearPlate(s.id) } }) { Text("Plate cleared") }
                     }
                 }
             }
@@ -568,37 +571,44 @@ private fun PrinterCard(
             SectionLabel("Temperatures")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 val t = s.temps
+                val limits = heatLimits(s.model)
                 if (s.dualNozzle) {
-                    StatTile("Right nozzle", tempText(t.nozzle, t.nozzleTarget), Modifier.weight(1f)) {
-                        dialog = CardDialog.Temp("Right nozzle target", 320, (t.nozzleTarget ?: 0.0).roundToInt()) {
-                            vm.command { setNozzleTemp(s.id, it, 0) }
+                    // Readings: nozzle = left, nozzle2 = right. Commands and the active nozzle use the
+                    // printer's numbering: 0 = right, 1 = left (see BbTemps).
+                    HeatTile(
+                        "Left", PrinterIcons.Nozzle, t.nozzle, t.nozzleTarget, limits.nozzle, 5.0,
+                        Modifier.weight(1f), active = s.activeNozzle == 1,
+                    ) {
+                        dialog = CardDialog.Temp("Left nozzle target", limits.nozzle, (t.nozzleTarget ?: 0.0).roundToInt()) {
+                            vm.control { setNozzleTemp(s.id, it, 1) }
                         }
                     }
-                    StatTile("Left nozzle", tempText(t.nozzle2, t.nozzle2Target), Modifier.weight(1f)) {
-                        dialog = CardDialog.Temp("Left nozzle target", 320, (t.nozzle2Target ?: 0.0).roundToInt()) {
-                            vm.command { setNozzleTemp(s.id, it, 1) }
+                    HeatTile(
+                        "Right", PrinterIcons.Nozzle, t.nozzle2, t.nozzle2Target, limits.nozzle, 5.0,
+                        Modifier.weight(1f), active = s.activeNozzle == 0,
+                    ) {
+                        dialog = CardDialog.Temp("Right nozzle target", limits.nozzle, (t.nozzle2Target ?: 0.0).roundToInt()) {
+                            vm.control { setNozzleTemp(s.id, it, 0) }
                         }
                     }
                 } else {
-                    StatTile("Nozzle", tempText(t.nozzle, t.nozzleTarget), Modifier.weight(1f)) {
-                        dialog = CardDialog.Temp("Nozzle target", 320, (t.nozzleTarget ?: 0.0).roundToInt()) {
-                            vm.command { setNozzleTemp(s.id, it, 0) }
+                    HeatTile("Nozzle", PrinterIcons.Nozzle, t.nozzle, t.nozzleTarget, limits.nozzle, 5.0, Modifier.weight(1f)) {
+                        dialog = CardDialog.Temp("Nozzle target", limits.nozzle, (t.nozzleTarget ?: 0.0).roundToInt()) {
+                            vm.control { setNozzleTemp(s.id, it, 0) }
                         }
                     }
                 }
-                StatTile("Bed", tempText(t.bed, t.bedTarget), Modifier.weight(1f)) {
-                    dialog = CardDialog.Temp("Bed target", 140, (t.bedTarget ?: 0.0).roundToInt()) {
-                        vm.command { setBedTemp(s.id, it) }
+                HeatTile("Bed", PrinterIcons.Bed, t.bed, t.bedTarget, limits.bed, 2.0, Modifier.weight(1f)) {
+                    dialog = CardDialog.Temp("Bed target", limits.bed, (t.bedTarget ?: 0.0).roundToInt()) {
+                        vm.control { setBedTemp(s.id, it) }
                     }
                 }
-                StatTile(
-                    "Chamber",
-                    tempText(t.chamber, t.chamberTarget),
-                    Modifier.weight(1f),
-                    enabled = s.supportsChamberHeater,
+                HeatTile(
+                    "Chamber", PrinterIcons.Chamber, t.chamber, t.chamberTarget, limits.chamber, 2.0,
+                    Modifier.weight(1f), enabled = s.supportsChamberHeater,
                 ) {
-                    dialog = CardDialog.Temp("Chamber target", 65, (t.chamberTarget ?: 0.0).roundToInt()) {
-                        vm.command { setChamberTemp(s.id, it) }
+                    dialog = CardDialog.Temp("Chamber target", limits.chamber, (t.chamberTarget ?: 0.0).roundToInt()) {
+                        vm.control { setChamberTemp(s.id, it) }
                     }
                 }
             }
@@ -606,13 +616,13 @@ private fun PrinterCard(
             // Fans (tap a tile to set percent)
             SectionLabel("Fans")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                StatTile("Part", s.partFan?.let { "$it%" } ?: "-", Modifier.weight(1f)) {
+                FanTile("Part", s.partFan, Modifier.weight(1f)) {
                     dialog = CardDialog.Fan("Part cooling fan", "part", s.partFan ?: 0)
                 }
-                StatTile("Aux", s.auxFan?.let { "$it%" } ?: "-", Modifier.weight(1f)) {
+                FanTile("Aux", s.auxFan, Modifier.weight(1f)) {
                     dialog = CardDialog.Fan("Auxiliary fan", "aux", s.auxFan ?: 0)
                 }
-                StatTile("Chamber", s.chamberFan?.let { "$it%" } ?: "-", Modifier.weight(1f)) {
+                FanTile("Chamber", s.chamberFan, Modifier.weight(1f)) {
                     dialog = CardDialog.Fan("Chamber fan", "chamber", s.chamberFan ?: 0)
                 }
             }
@@ -626,7 +636,7 @@ private fun PrinterCard(
                     value = if (s.light) "On" else "Off",
                     highlighted = s.light,
                     modifier = Modifier.weight(1f),
-                ) { vm.command { setChamberLight(s.id, !s.light) } }
+                ) { vm.control { setChamberLight(s.id, !s.light) } }
                 ControlTile(
                     icon = Icons.Filled.Speed,
                     label = "Speed",
@@ -637,14 +647,14 @@ private fun PrinterCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 if (s.state == "PAUSE") {
-                    Button(onClick = { vm.command { resume(s.id) } }, modifier = Modifier.weight(1f)) {
+                    Button(onClick = { vm.control { resume(s.id) } }, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Resume")
                     }
                 } else {
                     Button(
-                        onClick = { vm.command { pause(s.id) } },
+                        onClick = { vm.control { pause(s.id) } },
                         enabled = s.state == "RUNNING",
                         modifier = Modifier.weight(1f),
                     ) {
@@ -663,11 +673,13 @@ private fun PrinterCard(
                     Text("Stop")
                 }
             }
-            OutlinedButton(
-                onClick = { dialog = CardDialog.Skip },
-                enabled = active,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Skip objects") }
+            if (!direct) {
+                OutlinedButton(
+                    onClick = { dialog = CardDialog.Skip },
+                    enabled = active,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Skip objects") }
+            }
 
             // Errors
             if (s.hms.isNotEmpty()) {
@@ -733,7 +745,7 @@ private fun PrinterCard(
             helper = null,
             presets = listOf(0, 25, 50, 75, 100),
             onDismiss = { dialog = null },
-            onConfirm = { v -> vm.command { setFanSpeed(s.id, d.fan, v) }; dialog = null },
+            onConfirm = { v -> vm.control { setFanSpeed(s.id, d.fan, v) }; dialog = null },
         )
         CardDialog.Speed -> AlertDialog(
             onDismissRequest = { dialog = null },
@@ -744,7 +756,7 @@ private fun PrinterCard(
                         val level = i + 1
                         val current = level == s.speedLevel
                         Surface(
-                            onClick = { vm.command { setPrintSpeed(s.id, level) }; dialog = null },
+                            onClick = { vm.control { setPrintSpeed(s.id, level) }; dialog = null },
                             shape = RoundedCornerShape(14.dp),
                             color = if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
                             modifier = Modifier.fillMaxWidth(),
@@ -772,7 +784,7 @@ private fun PrinterCard(
             title = { Text("Stop print?") },
             text = { Text("This cancels the current print on ${s.name}. It can't be resumed.") },
             confirmButton = {
-                TextButton(onClick = { vm.command { stop(s.id) }; dialog = null }) { Text("Stop print") }
+                TextButton(onClick = { vm.control { stop(s.id) }; dialog = null }) { Text("Stop print") }
             },
             dismissButton = { TextButton(onClick = { dialog = null }) { Text("Keep printing") } },
         )
@@ -818,7 +830,7 @@ private fun SkipObjectsDialog(s: BbStatus, vm: BambuddyViewModel, onDismiss: () 
             confirmButton = {
                 TextButton(onClick = {
                     val ids = selected.toList()
-                    vm.command { skipObjects(s.id, ids) }
+                    vm.control { skipObjects(s.id, ids) }
                     onDismiss()
                 }) { Text("Skip") }
             },
@@ -1014,12 +1026,49 @@ private fun HomeSummary(
     }
 }
 
+/** Shown at the top of the home screen while the printers are reached directly. */
+@Composable
+private fun DirectModeBar(onManage: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Wifi,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Direct connection",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onManage) { Text("Printers") }
+        }
+    }
+}
+
 /** Small "Buy me a coffee" link under the printers (direct/sideload build only, see flags.xml). */
 @Composable
 private fun DonateBanner() {
     val context = androidx.compose.ui.platform.LocalContext.current
     if (!context.resources.getBoolean(org.cygnusx1.openbu.R.bool.show_donate)) return
-    Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .navigationBarsPadding()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(
             onClick = {
                 runCatching {
@@ -1051,34 +1100,6 @@ private fun SectionLabel(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-}
-
-@Composable
-private fun StatTile(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier.alpha(if (enabled) 1f else 0.6f),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(2.dp))
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        }
-    }
 }
 
 @Composable
@@ -1298,11 +1319,6 @@ private fun stateLabel(state: String): String = when (state) {
     "SLICING" -> "Slicing"
     "" -> "Unknown"
     else -> state.lowercase().replaceFirstChar { it.uppercase() }
-}
-
-private fun tempText(current: Double?, target: Double?): String {
-    val c = current?.let { "${it.roundToInt()}°" } ?: "-"
-    return if (target != null && target > 0) "$c / ${target.roundToInt()}°" else c
 }
 
 private fun formatMinutes(min: Int): String =

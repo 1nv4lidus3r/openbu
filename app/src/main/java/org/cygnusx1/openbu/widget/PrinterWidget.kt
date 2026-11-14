@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.RemoteViews
 import org.cygnusx1.openbu.R
 import org.cygnusx1.openbu.bambuddy.BambuddyClient
+import org.cygnusx1.openbu.direct.DirectBackend
 import org.cygnusx1.openbu.bambuddy.BbStatus
 import org.cygnusx1.openbu.notify.NotifyPrefs
 import java.time.LocalDateTime
@@ -42,7 +43,21 @@ class PrinterWidget : AppWidgetProvider() {
             try {
                 val prefs = NotifyPrefs.open(app)
                 val cfg = prefs?.let { NotifyPrefs.bambuddyConfig(it) }
-                if (cfg == null) {
+                if (prefs != null && NotifyPrefs.directMode(prefs)) {
+                    // Direct connection: briefly connect to each printer for a fresh reading.
+                    DirectBackend.acquire(app, WIDGET_USER)
+                    try {
+                        val printers = DirectBackend.listPrinters()
+                        // One shared deadline: the printers connect in parallel.
+                        val end = System.currentTimeMillis() + 7_000
+                        printers.forEach {
+                            DirectBackend.awaitConnected(it.id, (end - System.currentTimeMillis()).coerceAtLeast(0))
+                        }
+                        render(app, printers.mapNotNull { runCatching { DirectBackend.status(it.id) }.getOrNull() })
+                    } finally {
+                        DirectBackend.release(WIDGET_USER)
+                    }
+                } else if (cfg == null) {
                     renderMessage(app, "Open BamMate and set up your Bambuddy server.")
                 } else {
                     val client = BambuddyClient(cfg.url, cfg.apiKey)
@@ -66,6 +81,7 @@ class PrinterWidget : AppWidgetProvider() {
 
     companion object {
         private const val TAG = "BamMateWidget"
+        private const val WIDGET_USER = "widget"
         const val ACTION_REFRESH = "org.cygnusx1.openbu.widget.REFRESH"
 
         private val ROWS = listOf(

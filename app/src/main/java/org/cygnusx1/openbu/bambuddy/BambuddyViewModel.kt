@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.cygnusx1.openbu.direct.DirectBackend
 import org.cygnusx1.openbu.notify.NotifyPrefs
 import org.cygnusx1.openbu.notify.PrinterMonitorService
 
@@ -67,8 +68,8 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
 
     private val _fallbackMode = MutableStateFlow(false)
     /**
-     * When true the app shows the original direct-to-printer screens (LAN/MQTT) instead of
-     * the Bambuddy home screen. Off by default.
+     * When true the home screen talks to the saved printers directly over the local network
+     * ([DirectBackend]) instead of through the Bambuddy server. Off by default.
      */
     val fallbackMode: StateFlow<Boolean> = _fallbackMode.asStateFlow()
 
@@ -83,8 +84,17 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setFallback(enabled: Boolean) {
+        if (_fallbackMode.value == enabled) return
+        val polling = pollJob?.isActive == true
+        if (polling) stopPolling()
         _fallbackMode.value = enabled
         prefs?.edit()?.putBoolean(KEY_FALLBACK, enabled)?.commit()
+        _statuses.value = emptyList()
+        _power.value = emptyMap()
+        _error.value = null
+        _loaded.value = false
+        pollCount = 0
+        if (polling) startPolling()
         // Switch background alerts between Bambuddy polling and direct printer connections.
         PrinterMonitorService.sync(getApplication())
     }
@@ -113,8 +123,20 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { refreshOnce() }
     }
 
+    /** Where the printers are reached right now: directly, or through the Bambuddy server. */
+    private fun backend(): PrinterBackend? = if (_fallbackMode.value) DirectBackend else client
+
+    /** Call after adding, editing or removing a direct printer. */
+    fun directPrintersChanged() {
+        DirectBackend.reload(getApplication())
+        PrinterMonitorService.sync(getApplication())
+        _loaded.value = false
+        refreshNow()
+    }
+
     fun startPolling() {
         if (pollJob?.isActive == true) return
+        if (_fallbackMode.value) DirectBackend.acquire(getApplication(), SCREEN_USER)
         pollJob = viewModelScope.launch {
             while (isActive) {
                 refreshOnce()
@@ -126,6 +148,7 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
     fun stopPolling() {
         pollJob?.cancel()
         pollJob = null
+        DirectBackend.release(SCREEN_USER)
     }
 
     fun refreshNow() {
@@ -133,15 +156,15 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
     }
 
     private suspend fun refreshOnce() {
-        val c = client ?: return
+        val b = backend() ?: return
         try {
             val list = withContext(Dispatchers.IO) {
-                val printers = c.listPrinters()
+                val printers = b.listPrinters()
                 coroutineScope {
                     printers.map { p ->
                         async(Dispatchers.IO) {
                             try {
-                                c.status(p.id)
+                                b.status(p.id).let { st -> if (st.model.isBlank()) st.copy(model = p.model) else st }
                             } catch (e: Exception) {
                                 Log.w(TAG, "status failed for printer ${p.id}", e)
                                 null
@@ -152,6 +175,12 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
             }
             _statuses.value = list
             _error.value = null
+            // Smart plugs, drying schedules and maintenance only exist on the Bambuddy server.
+            val c = b as? BambuddyClient
+            if (c == null) {
+                pollCount++
+                return
+            }
             if (pollCount % POWER_EVERY == 0) refreshPower(c, list.map { it.id }, lookupPlugs = pollCount % PLUG_LOOKUP_EVERY == 0)
             if (dryingsDirty || pollCount % DRYINGS_EVERY == 0) {
                 dryingsDirty = false
@@ -243,7 +272,25 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
     /** The current client, for long-running streams such as the camera. Null until a server is saved. */
     fun currentClient(): BambuddyClient? = client
 
-    /** Run a control command off the main thread, then refresh. Errors show in the banner. */
+    /**
+     * Run a printer control (temperatures, fans, pause, ...) through whichever connection is in
+     * use, then refresh. Errors show in the banner.
+     */
+    fun control(block: PrinterBackend.() -> Unit) {
+        val b = backend() ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                b.block()
+                delay(700) // let the printer apply the change before reading it back
+                refreshOnce()
+            } catch (e: Exception) {
+                Log.w(TAG, "control failed", e)
+                _error.value = "Command failed: " + describe(e)
+            }
+        }
+    }
+
+    /** Run a Bambuddy-only command off the main thread, then refresh. Errors show in the banner. */
     fun command(block: BambuddyClient.() -> Unit) {
         val c = client ?: return
         viewModelScope.launch(Dispatchers.IO) {
@@ -266,6 +313,7 @@ class BambuddyViewModel(application: Application) : AndroidViewModel(application
 
     companion object {
         private const val TAG = "BambuddyVM"
+        private const val SCREEN_USER = "screen"
         private const val KEY_URL = "bb_base_url"
         private const val KEY_API = "bb_api_key"
         private const val KEY_FALLBACK = "bb_fallback_mode"

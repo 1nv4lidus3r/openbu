@@ -5,10 +5,15 @@ import org.json.JSONObject
 
 data class BbPrinter(val id: Int, val name: String, val model: String)
 
+/**
+ * Dual-nozzle printers (H2D), as checked on a real printer:
+ * - [nozzle] is the LEFT nozzle's reading and [nozzle2] the RIGHT one's;
+ * - commands and [BbStatus.activeNozzle] number the nozzles the printer's way: 0 = right, 1 = left.
+ * Single-nozzle printers only use [nozzle] and index 0.
+ */
 data class BbTemps(
     val nozzle: Double? = null,
     val nozzleTarget: Double? = null,
-    // Second nozzle on dual-nozzle printers (H2D). Bambuddy's API: nozzle index 0 = right, 1 = left.
     val nozzle2: Double? = null,
     val nozzle2Target: Double? = null,
     val bed: Double? = null,
@@ -76,6 +81,12 @@ data class BbStatus(
     val hasCover: Boolean = false,
     val supportsDrying: Boolean = false,
     val supportsDryingWhilePrinting: Boolean = false,
+    /** Why a directly connected printer is offline ("Can't reach the printer", ...). */
+    val note: String? = null,
+    /** Printer model ("X1C", "H2D", ...), used for per-model temperature limits. */
+    val model: String = "",
+    /** Dual-nozzle printers: the nozzle in use, 0 = right, 1 = left (see [BbTemps]). Null when unknown. */
+    val activeNozzle: Int? = null,
     // Unmodified server response, shown in the app's "Raw data" dialog for troubleshooting.
     val raw: String,
 )
@@ -237,6 +248,7 @@ fun parseStatus(body: String): BbStatus {
         hasCover = o.stringOrNull("cover_url") != null,
         supportsDrying = o.optBoolean("supports_drying", false),
         supportsDryingWhilePrinting = o.optBoolean("supports_drying_while_printing", false),
+        activeNozzle = o.intOrNull("active_extruder") ?: o.intOrNull("active_nozzle"),
         raw = body,
     )
 }

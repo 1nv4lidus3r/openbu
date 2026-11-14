@@ -16,33 +16,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.cygnusx1.openbu.R
 import org.cygnusx1.openbu.bambuddy.BambuddyClient
 import org.cygnusx1.openbu.bambuddy.BbPlug
 import org.cygnusx1.openbu.bambuddy.BbStatus
+import org.cygnusx1.openbu.direct.DirectBackend
 import org.cygnusx1.openbu.widget.PrinterWidget
-import org.cygnusx1.openbu.network.BambuMqttClient
-import org.cygnusx1.openbu.network.SavedPrinter
 
 /**
- * Foreground service that keeps its own MQTT connection to each saved printer so print
- * alerts still arrive when the app screen is closed.
- *
- * It uses a separate MQTT client id from the UI (see [NotifyPrefs.backgroundClientId]) and
- * does not touch the ViewModel, so the existing UI connection logic is unchanged.
+ * Foreground service that keeps watching the printers so print alerts still arrive when the
+ * app screen is closed: it polls the Bambuddy server, or in direct mode reads the printers'
+ * own connections (shared with the home screen through [DirectBackend]).
  */
 class PrinterMonitorService : Service() {
 
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.IO)
-    private val monitors = mutableMapOf<String, Pair<SavedPrinter, Job>>()
+    private var directWatch: Job? = null
     private var bambuddyWatch: Pair<NotifyPrefs.BambuddyConfig, Job>? = null
     private lateinit var notifier: PrinterNotifier
 
@@ -65,9 +59,10 @@ class PrinterMonitorService : Service() {
     }
 
     override fun onDestroy() {
-        job.cancel() // each monitor closes its socket in a finally block
-        monitors.clear()
+        job.cancel()
+        directWatch = null
         bambuddyWatch = null
+        DirectBackend.release(ALERTS_USER)
         super.onDestroy()
     }
 
@@ -99,8 +94,8 @@ class PrinterMonitorService : Service() {
     }
 
     /**
-     * Match the running watchers to the settings: poll the Bambuddy server normally, or keep
-     * direct MQTT monitors per saved printer when the app is in fallback mode.
+     * Match the running watcher to the settings: poll the Bambuddy server normally, or read the
+     * direct printer connections when the app is in direct mode.
      */
     private fun reconcile() {
         val prefs = NotifyPrefs.open(this)
@@ -111,9 +106,7 @@ class PrinterMonitorService : Service() {
 
         val bb = NotifyPrefs.bambuddyConfig(prefs)
         if (bb != null) {
-            // Bambuddy mode: no direct printer connections at all.
-            monitors.values.forEach { it.second.cancel() }
-            monitors.clear()
+            stopDirect()
             if (bambuddyWatch?.first != bb) {
                 bambuddyWatch?.second?.cancel()
                 bambuddyWatch = bb to scope.launch { watchBambuddy(bb, prefs) }
@@ -123,19 +116,40 @@ class PrinterMonitorService : Service() {
         bambuddyWatch?.second?.cancel()
         bambuddyWatch = null
 
-        val wanted = NotifyPrefs.savedPrinters(prefs)
-            .filter { it.accessCode.isNotBlank() }
-            .associateBy { it.serialNumber }
-
-        monitors.keys.filter { it !in wanted }.forEach { monitors.remove(it)?.second?.cancel() }
-        for ((serial, printer) in wanted) {
-            val existing = monitors[serial]
-            if (existing == null || existing.first != printer) {
-                existing?.second?.cancel()
-                monitors[serial] = printer to scope.launch { monitor(printer, prefs) }
-            }
+        if (!NotifyPrefs.directMode(prefs) || NotifyPrefs.directPrinters(prefs).isEmpty()) {
+            stopDirect()
+            stopSelf()
+            return
         }
-        if (wanted.isEmpty()) stopSelf()
+        // Picks up added or removed printers; the watcher reads the current list every round.
+        DirectBackend.acquire(this, ALERTS_USER)
+        if (directWatch?.isActive != true) directWatch = scope.launch { watchDirect(prefs) }
+    }
+
+    private fun stopDirect() {
+        directWatch?.cancel()
+        directWatch = null
+        DirectBackend.release(ALERTS_USER)
+    }
+
+    /** Read every direct printer's status every few seconds and feed the notifier. */
+    private suspend fun watchDirect(prefs: SharedPreferences) {
+        var cycle = 0
+        while (currentCoroutineContext().isActive) {
+            val seen = mutableListOf<BbStatus>()
+            for (p in DirectBackend.listPrinters()) {
+                try {
+                    val st = DirectBackend.status(p.id)
+                    seen += st
+                    notifier.onBambuddy(st, prefs, direct = true)
+                } catch (e: Exception) {
+                    Log.d(TAG, "Direct status for ${p.id} failed: ${e.message}")
+                }
+            }
+            // The widget doesn't need every reading.
+            if (cycle++ % 3 == 0 && PrinterWidget.hasWidgets(this)) PrinterWidget.render(this, seen)
+            delay(DIRECT_POLL_MS)
+        }
     }
 
     /** Poll the Bambuddy server for every printer's status and feed the notifier. */
@@ -199,54 +213,11 @@ class PrinterMonitorService : Service() {
         }
     }
 
-    private suspend fun monitor(printer: SavedPrinter, prefs: SharedPreferences) {
-        var backoffMs = INITIAL_BACKOFF_MS
-        while (currentCoroutineContext().isActive) {
-            val client = BambuMqttClient(
-                printer.ip,
-                printer.accessCode,
-                printer.serialNumber,
-                clientId = NotifyPrefs.backgroundClientId(prefs),
-                rawSocketFactory = NotifyPrefs.proxySocketFactory(prefs, printer.serialNumber),
-            )
-            val attempt = Job()
-            try {
-                client.connect(CoroutineScope(attempt + Dispatchers.IO))
-
-                val gotReport = withTimeoutOrNull(REPORT_TIMEOUT_MS) {
-                    client.reportReceived.first { it }
-                } == true
-
-                if (gotReport) {
-                    backoffMs = INITIAL_BACKOFF_MS
-                    coroutineScope {
-                        val collector = launch {
-                            client.printerStatus.collect { notifier.onReport(printer, it, prefs) }
-                        }
-                        // Suspends until the connection drops (socket error or read timeout).
-                        client.connected.first { !it }
-                        collector.cancel()
-                    }
-                } else if (client.connectionError.value?.contains("rejected", ignoreCase = true) == true) {
-                    // Wrong access code: retrying forever would just hammer the printer.
-                    Log.w(TAG, "Access code rejected for ${printer.serialNumber}; not retrying")
-                    return
-                }
-            } finally {
-                attempt.cancel()
-                client.close()
-            }
-            delay(backoffMs)
-            backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
-        }
-    }
-
     companion object {
         private const val TAG = "PrinterMonitor"
         private const val FOREGROUND_ID = 1
-        private const val INITIAL_BACKOFF_MS = 5_000L
-        private const val MAX_BACKOFF_MS = 60_000L
-        private const val REPORT_TIMEOUT_MS = 30_000L
+        private const val ALERTS_USER = "alerts"
+        private const val DIRECT_POLL_MS = 5_000L
         private const val POLL_MS = 15_000L
         private const val MAX_POLL_BACKOFF_MS = 120_000L
         private const val PLUG_LOOKUP_EVERY = 20 // ~5 min
@@ -266,7 +237,10 @@ class PrinterMonitorService : Service() {
                 val shouldRun = prefs != null &&
                     prefs.getBoolean(NotifyPrefs.KEY_ENABLED, false) &&
                     NotificationManagerCompat.from(app).areNotificationsEnabled() &&
-                    (NotifyPrefs.bambuddyConfig(prefs) != null || NotifyPrefs.savedPrinters(prefs).isNotEmpty())
+                    (
+                        NotifyPrefs.bambuddyConfig(prefs) != null ||
+                            (NotifyPrefs.directMode(prefs) && NotifyPrefs.directPrinters(prefs).isNotEmpty())
+                        )
                 if (shouldRun) {
                     ContextCompat.startForegroundService(app, intent)
                 } else {

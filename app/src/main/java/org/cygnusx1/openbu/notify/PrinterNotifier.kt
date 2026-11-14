@@ -15,8 +15,6 @@ import org.cygnusx1.openbu.bambuddy.BbMaintPrinter
 import org.cygnusx1.openbu.bambuddy.BbPlug
 import org.cygnusx1.openbu.bambuddy.BbStatus
 import org.cygnusx1.openbu.bambuddy.displayName
-import org.cygnusx1.openbu.network.PrinterStatus
-import org.cygnusx1.openbu.network.SavedPrinter
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -81,30 +79,17 @@ class PrinterNotifier(private val context: Context) {
     /** Last known drying state per AMS ("bb:<printer>:<ams>"). */
     private val drying = ConcurrentHashMap<String, Boolean>()
 
-    /** Direct (MQTT) report from a saved printer, used in fallback mode. */
-    fun onReport(printer: SavedPrinter, status: PrinterStatus, prefs: SharedPreferences) {
-        val name = displayName(printer)
-        val job = status.subtaskName.ifBlank { status.gcodeFile }
-        onUpdate(
-            key = "mqtt:" + printer.serialNumber,
-            name = name,
-            state = status.gcodeState,
-            hms = status.hmsErrors.associate { it.hmsCode to null },
-            jobText = if (job.isBlank()) name else "$job ($name)",
-            progress = if (status.totalLayerNum > 0) {
-                " - ${status.mcPercent}%, layer ${status.layerNum}/${status.totalLayerNum}"
-            } else {
-                " - ${status.mcPercent}%"
-            },
-            prefs = prefs,
-        )
-    }
-
     /**
-     * Status polled from the Bambuddy server (the normal mode).
-     * plug / plugOn are the printer's smart plug and whether it is on, when known.
+     * A printer's latest status, from the Bambuddy server or a direct connection ([direct]).
+     * plug / plugOn are the printer's smart plug and whether it is on, when known (Bambuddy only).
      */
-    fun onBambuddy(s: BbStatus, prefs: SharedPreferences, plug: BbPlug? = null, plugOn: Boolean? = null) {
+    fun onBambuddy(
+        s: BbStatus,
+        prefs: SharedPreferences,
+        plug: BbPlug? = null,
+        plugOn: Boolean? = null,
+        direct: Boolean = false,
+    ) {
         // An offline printer has no meaningful state; keep the last known one until it is back.
         if (!s.connected || s.state.isBlank()) return
         val name = s.name.ifBlank { "Printer ${s.id}" }
@@ -118,7 +103,12 @@ class PrinterNotifier(private val context: Context) {
             emptyList()
         }
         val active = s.state in ACTIVE_STATES
-        val clearPlate = NotifAction("Plate cleared", NotificationActionReceiver.ACTION_CLEAR_PLATE, s.id)
+        // Only Bambuddy keeps a "plate needs clearing" flag.
+        val clearPlate = if (direct) {
+            emptyList()
+        } else {
+            listOf(NotifAction("Plate cleared", NotificationActionReceiver.ACTION_CLEAR_PLATE, s.id))
+        }
 
         onUpdate(
             key = key,
@@ -134,7 +124,7 @@ class PrinterNotifier(private val context: Context) {
             prefs = prefs,
             actionsFor = { type ->
                 when (type) {
-                    TYPE_FINISHED, TYPE_FAILED -> listOf(clearPlate) + powerOff
+                    TYPE_FINISHED, TYPE_FAILED -> clearPlate + powerOff
                     TYPE_PAUSED -> listOf(NotifAction("Resume", NotificationActionReceiver.ACTION_RESUME, s.id))
                     TYPE_HMS -> if (s.state == "RUNNING") {
                         listOf(NotifAction("Pause print", NotificationActionReceiver.ACTION_PAUSE, s.id))
@@ -193,7 +183,7 @@ class PrinterNotifier(private val context: Context) {
                 if (prefs.getBoolean(NotifyPrefs.KEY_PLATE, true)) {
                     post(key, TYPE_PLATE, NotifyChannels.REMINDERS, "Plate needs clearing",
                         "$name finished a while ago and is waiting for the build plate to be cleared.",
-                        listOf(clearPlate))
+                        clearPlate)
                 }
             }
         } else {
@@ -290,9 +280,6 @@ class PrinterNotifier(private val context: Context) {
         track.state = state
         track.hmsCodes = hmsNow
     }
-
-    private fun displayName(printer: SavedPrinter): String =
-        printer.deviceName.ifBlank { "Printer " + printer.serialNumber.takeLast(4) }
 
     private fun clockIn(minutes: Int): String =
         LocalDateTime.now().plusMinutes(minutes.toLong())

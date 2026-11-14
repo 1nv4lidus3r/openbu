@@ -30,13 +30,13 @@ android {
         targetSdk = 35
         // BamMate numbering: 0.0.x until beta. versionCode must keep increasing for updates to
         // install (the last Openbu-based build was 3), so it continues from there.
-        versionCode = 4
+        versionCode = 6
         // Base version only. The "-dirty" marker for builds from a tree with uncommitted changes
         // is applied to the APK/AAB *filenames* at execution time (see DirtyAwareTask), so it
         // can't go stale under the configuration cache and stays out of the user-visible manifest
         // version. A "-dirty" build is instead visible in the artifact filename (no automated
         // release guard exists yet).
-        versionName = "0.0.1"
+        versionName = "0.0.3"
     }
 
     signingConfigs {
@@ -104,9 +104,8 @@ android {
         compose = true
     }
 
-    // Split the sideload APK per-ABI so each artifact ships only one libvlc.so
-    // (~40 MB each) instead of both, making each APK smaller. Ignored for AAB
-    // (bundle) builds, where Play splits per device.
+    // Per-ABI sideload APKs (kept so the output file names stay the same). BamMate has no
+    // native libraries, so both APKs are identical. Ignored for AAB (bundle) builds.
     splits {
         abi {
             isEnable = true
@@ -159,7 +158,7 @@ abstract class DirtyAwareTask : DefaultTask() {
     }
 }
 
-// Name APK outputs directly (e.g. openbu-direct-debug-1.0.26.apk) so there's a single
+// Name APK outputs directly (e.g. bammate-direct-debug-0.0.2.apk) so there's a single
 // correctly-named artifact and no post-build file moves — those broke installDirectDebug
 // and corrupted incremental builds. Uses the public Artifacts transform API (no internal
 // AGP classes); submit() rewrites the BuiltArtifacts metadata so install/test tasks still
@@ -255,7 +254,7 @@ abstract class RenameAabTask : DirtyAwareTask() {
 }
 
 tasks.register<RenameAabTask>("renameAabs") {
-    appName.set("openbu")
+    appName.set("bammate")
     versionName.set(android.defaultConfig.versionName ?: "unknown")
     bundleDir.set(layout.buildDirectory.dir("outputs/bundle"))
     repoRoot.set(repoRootDir)
@@ -283,13 +282,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-
-    // TODO Update this to a non-release candidate version
-    implementation("androidx.media3:media3-exoplayer:1.10.0-rc03")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.10.0-rc03")
-    implementation("androidx.media3:media3-ui:1.10.0-rc03")
-
-    implementation("org.videolan.android:libvlc-all:3.6.5")
-    implementation("org.conscrypt:conscrypt-android:2.5.3")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -13,7 +13,9 @@ class BambuddyException(val httpCode: Int, message: String) : IOException(messag
  * Uses X-API-Key auth and plain HttpURLConnection, so no new dependencies are needed.
  * All methods block; call them from Dispatchers.IO.
  */
-class BambuddyClient(baseUrl: String, private val apiKey: String) {
+class BambuddyClient(baseUrl: String, private val apiKey: String) : PrinterBackend {
+
+    override val isDirect: Boolean get() = false
 
     private val base: String = run {
         var u = baseUrl.trim().trimEnd('/')
@@ -74,30 +76,30 @@ class BambuddyClient(baseUrl: String, private val apiKey: String) {
         return "HTTP $code${if (detail.isNullOrBlank()) "" else ": $detail"}$hint"
     }
 
-    fun listPrinters(): List<BbPrinter> = parsePrinterList(request("GET", "/printers/"))
+    override fun listPrinters(): List<BbPrinter> = parsePrinterList(request("GET", "/printers/"))
 
-    fun status(printerId: Int): BbStatus = parseStatus(request("GET", "/printers/$printerId/status"))
+    override fun status(printerId: Int): BbStatus = parseStatus(request("GET", "/printers/$printerId/status"))
 
     // --- controls (all take query parameters, per the OpenAPI spec) ---
 
-    fun setBedTemp(id: Int, target: Int) {
+    override fun setBedTemp(id: Int, target: Int) {
         request("POST", "/printers/$id/temperature/bed", mapOf("target" to target.coerceIn(0, 140).toString()))
     }
 
-    /** nozzle: 0 = right/default, 1 = left (dual-nozzle printers). */
-    fun setNozzleTemp(id: Int, target: Int, nozzle: Int = 0) {
+    /** nozzle: 0 = default (the right nozzle on the H2D), 1 = left. */
+    override fun setNozzleTemp(id: Int, target: Int, nozzle: Int) {
         request(
             "POST", "/printers/$id/temperature/nozzle",
-            mapOf("target" to target.coerceIn(0, 320).toString(), "nozzle" to nozzle.toString()),
+            mapOf("target" to target.coerceIn(0, 350).toString(), "nozzle" to nozzle.toString()),
         )
     }
 
-    fun setChamberTemp(id: Int, target: Int) {
+    override fun setChamberTemp(id: Int, target: Int) {
         request("POST", "/printers/$id/temperature/chamber", mapOf("target" to target.coerceIn(0, 65).toString()))
     }
 
     /** fan: "part", "aux" or "chamber"; speed in percent. */
-    fun setFanSpeed(id: Int, fan: String, percent: Int) {
+    override fun setFanSpeed(id: Int, fan: String, percent: Int) {
         request(
             "POST", "/printers/$id/fan-speed",
             mapOf("fan" to fan, "speed" to percent.coerceIn(0, 100).toString()),
@@ -105,22 +107,22 @@ class BambuddyClient(baseUrl: String, private val apiKey: String) {
     }
 
     /** mode: 1 silent, 2 standard, 3 sport, 4 ludicrous. */
-    fun setPrintSpeed(id: Int, mode: Int) {
+    override fun setPrintSpeed(id: Int, mode: Int) {
         request("POST", "/printers/$id/print-speed", mapOf("mode" to mode.coerceIn(1, 4).toString()))
     }
 
-    fun setChamberLight(id: Int, on: Boolean) {
+    override fun setChamberLight(id: Int, on: Boolean) {
         request("POST", "/printers/$id/chamber-light", mapOf("on" to on.toString()))
     }
 
-    fun pause(id: Int) { request("POST", "/printers/$id/print/pause") }
+    override fun pause(id: Int) { request("POST", "/printers/$id/print/pause") }
 
-    fun resume(id: Int) { request("POST", "/printers/$id/print/resume") }
+    override fun resume(id: Int) { request("POST", "/printers/$id/print/resume") }
 
-    fun stop(id: Int) { request("POST", "/printers/$id/print/stop") }
+    override fun stop(id: Int) { request("POST", "/printers/$id/print/stop") }
 
     /** Tell Bambuddy the build plate has been cleared, so its queue may start the next job. */
-    fun clearPlate(id: Int) { request("POST", "/printers/$id/clear-plate") }
+    override fun clearPlate(id: Int) { request("POST", "/printers/$id/clear-plate") }
 
     // --- skip objects ---
 
@@ -128,11 +130,11 @@ class BambuddyClient(baseUrl: String, private val apiKey: String) {
      * reload = true makes Bambuddy re-read the objects from the current print's file instead of
      * returning its cached list, which can be left over from an earlier print.
      */
-    fun printObjects(id: Int, reload: Boolean = true): BbObjects =
+    override fun printObjects(id: Int, reload: Boolean): BbObjects =
         parseObjects(request("GET", "/printers/$id/print/objects", mapOf("reload" to reload.toString())))
 
     /** Skips the given objects (their identify ids) for the current print. Cannot be undone. */
-    fun skipObjects(id: Int, objectIds: List<Int>) {
+    override fun skipObjects(id: Int, objectIds: List<Int>) {
         request("POST", "/printers/$id/print/skip-objects", jsonBody = objectIds.joinToString(prefix = "[", postfix = "]"))
     }
 
